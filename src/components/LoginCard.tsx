@@ -202,10 +202,6 @@ export function LoginCard({ onLoginSuccess }: LoginCardProps) {
                   }`}
                 />
               </div>
-
-              <p className="text-[10px] sm:text-[11px] text-gray-400 text-center">
-                Contraseña provisional: Carnet de Identidad
-              </p>
             </>
           ) : (
             /* Pantalla de Verificación TOTP (Roles Oficiales) */

@@ -4,11 +4,11 @@
   "private": true,
   "description": "Sistema de elección del Secretariado de la Facultad de Ingeniería Informática (FEU)",
   "engines": {
-    "node": ">=20.9.0"
+    "node": "20.x"
   },
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && next build",
+    "build": "prisma generate && node scripts/auto-migrate.mjs && next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
@@ -30,6 +30,7 @@
     "next": "15.5.29",
     "react": "19.2.4",
     "react-dom": "19.2.4",
+    "tsx": "4.20.6",
     "zod": "3.25.76"
   },
   "devDependencies": {
@@ -44,7 +45,6 @@
     "fast-check": "3.23.2",
     "prisma": "6.19.3",
     "tailwindcss": "4.3.5",
-    "tsx": "4.20.6",
     "typescript": "5.9.3",
     "vitest": "2.1.9"
   }
