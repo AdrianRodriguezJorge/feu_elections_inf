@@ -608,6 +608,7 @@ si nivel == FACULTAD:
 | **Duración** | 3 pw. |
 | **Dependencias** | F0. |
 | **Entregable** | Staging con migraciones, auditoría y seed de la Facultad. |
+| **Estado** | **En curso.** Decisiones técnicas en [`11-decisiones-tecnicas-f1.md`](11-decisiones-tecnicas-f1.md). |
 
 **Actividades**
 

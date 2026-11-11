@@ -1,0 +1,622 @@
+// Esquema de datos del sistema de elección del Secretariado de la Facultad.
+//
+// Reglas que el esquema DEBE garantizar (ver docs/migracion-web/09 §4.3):
+//  - `ballots` NO tiene `membership_id` ni `voter_id`: el voto es secreto (RGF-26, INV-07).
+//  - `participations` es única por (proceso, membresía): un voto por miembro (RGF-25, INV-06).
+//  - `ballots.receipt_hash` es único por proceso: comprobante verificable.
+//  - `ballot_selections` es única por (boleta, candidato) y el presidente debe estar marcado como miembro.
+//  - `process_candidates.ballot_position` es único por proceso: orden de boleta inmutable (RGF-09, INV-09).
+//  - `seats` es DERIVADO: `candidatos - 2`. No es un campo editable (RGF-08, INV-13).
+//
+// Los CHECK que Prisma no expresa se añaden en la migración SQL (ver docs/f1-migracion-inicial.sql).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------------------------------------------------------------------------
+// Enums
+// ---------------------------------------------------------------------------
+
+/// Nivel organizativo. Solo FACULTAD se implementa en v1.
+enum StructureType {
+  BRIGADA
+  FACULTAD
+  SEDE
+  FILIAL
+  RESIDENCIA
+  CENTRO
+  NACIONAL
+}
+
+/// Órgano que se elige.
+enum ProcessType {
+  SECRETARIADO
+  PRESIDENTE
+}
+
+/// Estados del proceso electoral (09 §3.1).
+/// ADMIN cambia los decisivos; COMMISSION los intermedios.
+enum ProcessStatus {
+  BORRADOR
+  CONVOCADO
+  LISTO
+  ABIERTA
+  CERRADA
+  ESCRUTADA
+  EMPATE
+  SEGUNDA_VUELTA
+  SIN_QUORUM
+  PROCLAMADA
+  VP_DESIGNADA
+  FINALIZADA
+  IMPUGNADA
+  VACANTE
+  ANULADA
+}
+
+/// Modo de votación. v1 solo usa SECRET (se asume padrón > 100).
+enum VotingMode {
+  SECRET
+  PUBLIC
+}
+
+/// Regla de desempate (Art. 40).
+enum TieRule {
+  PRESIDENT_VOTES_THEN_RUNOFF
+}
+
+/// Regla de mayoría según nivel (Art. 63 Facultad, Art. 76 Universidad, Art. 92 Nacional).
+enum MajorityRule {
+  TOP_N
+  TOP_N_OVER_50
+  FIFTY_PLUS_ONE
+}
+
+/// Roles del sistema.
+enum UserRole {
+  ADMIN
+  COMMISSION
+  VOTER
+  OBSERVER
+}
+
+/// Estado de una boleta. Solo las VALIDA suman votos (RGF-04, INV-16).
+enum BallotState {
+  VALIDA
+  ANULADA_POR_ELECTOR
+}
+
+/// Cargo dentro del Secretariado.
+enum Office {
+  PRESIDENTE
+  VICEPRESIDENTE
+  MIEMBRO
+  NO_ELECTO
+}
+
+/// Tipo de importación.
+enum ImportKind {
+  MEMBERSHIPS
+  CANDIDATES
+}
+
+/// Estado de una importación.
+enum ImportStatus {
+  VALIDATED
+  IMPORTED
+  REJECTED
+}
+
+/// Tipo de vacante.
+enum VacancyType {
+  RENUNCIA
+  SEPARACION
+  INCAPACIDAD
+  FALLECIMIENTO
+}
+
+// ---------------------------------------------------------------------------
+// Organización
+// ---------------------------------------------------------------------------
+
+model Structure {
+  id          String         @id @default(cuid())
+  type        StructureType
+  name        String
+  parentId    String?
+  parent      Structure?     @relation("StructureTree", fields: [parentId], references: [id])
+  children    Structure[]    @relation("StructureTree")
+  level       Int
+  active      Boolean        @default(true)
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  brigades    Brigade[]
+  memberships Membership[]
+  processes   ElectoralProcess[]
+
+  @@index([parentId])
+  @@index([type])
+  @@map("structures")
+}
+
+/// Las brigadas se crean ANTES de importar: son la referencia de validación.
+model Brigade {
+  id          String    @id @default(cuid())
+  structureId String
+  structure   Structure @relation(fields: [structureId], references: [id], onDelete: Cascade)
+  /// Código de la brigada tal como aparece en la plantilla de importación (p. ej. "41").
+  code        String
+  name        String?
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  memberships Membership[]
+  candidates  Candidate[]
+
+  @@unique([structureId, code])
+  @@index([structureId])
+  @@map("brigades")
+}
+
+/// Persona habilitada para votar. Es la base del quórum.
+model Membership {
+  id          String    @id @default(cuid())
+  structureId String
+  structure   Structure @relation(fields: [structureId], references: [id], onDelete: Cascade)
+  /// CI: identificador único de la persona.
+  studentId   String
+  fullName    String
+  firstName   String?
+  lastName    String?
+  brigadeId   String?
+  brigade     Brigade?  @relation(fields: [brigadeId], references: [id])
+  eligible    Boolean   @default(true)
+  userId      String?   @unique
+  user        User?     @relation(fields: [userId], references: [id])
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  participations Participation[]
+
+  @@unique([structureId, studentId])
+  @@index([structureId, eligible])
+  @@map("memberships")
+}
+
+model User {
+  id           String       @id @default(cuid())
+  ci           String?      @unique
+  email        String       @unique
+  name         String
+  passwordHash String?
+  role         UserRole     @default(VOTER)
+  active       Boolean      @default(true)
+  mfaSecret    String?
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  membership   Membership?
+  commissionSeats CommissionSeat[]
+  acts         Act[]
+  auditEvents  AuditEvent[]
+
+  @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Proceso electoral
+// ---------------------------------------------------------------------------
+
+model ElectoralProcess {
+  id            String       @id @default(cuid())
+  structureId   String
+  structure     Structure    @relation(fields: [structureId], references: [id], onDelete: Cascade)
+  type          ProcessType  @default(SECRETARIADO)
+  academicYear  String
+  status        ProcessStatus @default(BORRADOR)
+  parentProcessId String?
+  parentProcess   ElectoralProcess? @relation("Runoff", fields: [parentProcessId], references: [id])
+  childProcesses  ElectoralProcess[] @relation("Runoff")
+  /// Ventana de votación. El cierre manual solo puede adelantar `closesAt`.
+  opensAt       DateTime?
+  closesAt      DateTime?
+  /// Cantidad de candidatos cargados. `seats` se DERIVA de aquí.
+  candidatesCount Int        @default(0)
+  /// Puestos a elegir. DERIVADO = candidatesCount - 2. No se edita a mano.
+  seats         Int          @default(0)
+  /// Reservado; los espacios de propuesta no se implementan en v1 (Q-L03).
+  proposalSlots Int          @default(0)
+  votingMode    VotingMode   @default(SECRET)
+  quorumPct     Decimal      @default(85) @db.Decimal(5, 2)
+  quorumExceptionPct Decimal?
+  majorityRule  MajorityRule @default(TOP_N)
+  tieRule       TieRule      @default(PRESIDENT_VOTES_THEN_RUNOFF)
+  /// Columnas de la boleta, en orden: NAME, BRIGADE, FACULTY, PROVINCE.
+  columns       String[]     @default(["NAME", "BRIGADE", "MEMBER", "PRESIDENT"])
+  /// Hash del snapshot inmutable de candidatos y padrón al pasar a LISTO.
+  snapshotHash  String?
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  candidacy     Candidacy?
+  candidates    ProcessCandidate[]
+  ballots       Ballot[]
+  participations Participation[]
+  commission    Commission?
+  results       Result[]
+  acts          Act[]
+  claims        Claim[]
+  auditEvents   AuditEvent[]
+  importBatches ImportBatch[]
+  designations  VicePresidentDesignation[]
+  vacancyEvents VacancyEvent[]
+
+  @@index([structureId, academicYear])
+  @@index([status])
+  @@map("electoral_processes")
+}
+
+/// Lista cargada de candidatos. Los requisitos de brigada y Consejo son
+/// opcionales y referenciales: no bloquean (RGF-05, RGF-06, RGF-07).
+model Candidacy {
+  id                String          @id @default(cuid())
+  processId         String          @unique
+  process           ElectoralProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
+  status            String          @default("CARGA")
+  totalCandidates   Int             @default(0)
+  /// Datos opcionales de referencia (no bloquean).
+  councilApprovedAt DateTime?
+  councilActa       String?
+  councilQuorumPct  Decimal?        @db.Decimal(5, 2)
+  councilVotesFor   Int?
+  councilVotesAgainst Int?
+  hash              String?
+  createdAt         DateTime        @default(now())
+  updatedAt         DateTime        @updatedAt
+
+  @@map("candidacies")
+}
+
+/// Dato maestro de la persona candidata.
+model Candidate {
+  id          String    @id @default(cuid())
+  studentId   String
+  firstSurname String
+  secondSurname String?
+  name        String
+  ci          String    @unique
+  facultyId   String?
+  brigadeId   String?
+  brigade     Brigade?  @relation(fields: [brigadeId], references: [id])
+  year        Int?
+  gender      String?
+  /// Biografía en Markdown, opcional. Se sanitiza al guardar y al renderizar (INV-17).
+  biographyMd String?
+  biographyHash String?
+  biographyUpdatedAt DateTime?
+  /// Referencia opcional; no bloquea (RGF-05).
+  brigadeValidated Boolean @default(false)
+  validationEvidence String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  processEntries ProcessCandidate[]
+
+  @@map("candidates")
+}
+
+/// Instantánea del candidato dentro de un proceso.
+model ProcessCandidate {
+  id             String          @id @default(cuid())
+  processId      String
+  process        ElectoralProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
+  candidateId    String
+  candidate      Candidate       @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  /// Posición en la boleta. Único por proceso e inmutable tras la apertura (RGF-09).
+  ballotPosition Int
+  status         String          @default("ACTIVO")
+  memberVotes    Int             @default(0)
+  presidentVotes Int             @default(0)
+  elected        Boolean         @default(false)
+  office         Office          @default(NO_ELECTO)
+  createdAt      DateTime        @default(now())
+
+  selections     BallotSelection[]
+  resultEntries  ResultCandidate[]
+
+  @@unique([processId, candidateId])
+  @@unique([processId, ballotPosition])
+  @@map("process_candidates")
+}
+
+// ---------------------------------------------------------------------------
+// Votación
+// ---------------------------------------------------------------------------
+
+/// Voto emitido. SIN `membership_id` ni `voter_id`: el voto es secreto (RGF-26, INV-07).
+model Ballot {
+  id            String       @id @default(cuid())
+  processId     String
+  process       ElectoralProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
+  state         BallotState  @default(VALIDA)
+  /// Comprobante de alta entropía que el elector puede verificar.
+  receiptHash   String
+  /// Motivos de la anulación, cuando el elector confirma una boleta inválida.
+  motivos       String[]     @default([])
+  castAt        DateTime     @default(now())
+  sequence      Int
+  /// Hash de integridad sobre las selecciones.
+  integrityHash String
+  mode          VotingMode   @default(SECRET)
+
+  selections    BallotSelection[]
+
+  @@unique([processId, receiptHash])
+  @@unique([processId, sequence])
+  @@index([processId, state])
+  @@map("ballots")
+}
+
+model BallotSelection {
+  id                String          @id @default(cuid())
+  ballotId          String
+  ballot            Ballot          @relation(fields: [ballotId], references: [id], onDelete: Cascade)
+  processCandidateId String
+  processCandidate  ProcessCandidate @relation(fields: [processCandidateId], references: [id], onDelete: Cascade)
+  member            Boolean         @default(false)
+  president         Boolean         @default(false)
+
+  @@unique([ballotId, processCandidateId])
+  @@index([processCandidateId])
+  @@map("ballot_selections")
+}
+
+/// Prueba de que un miembro votó. Es lo único que vincula persona y proceso.
+model Participation {
+  id           String          @id @default(cuid())
+  processId    String
+  process      ElectoralProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
+  membershipId String
+  membership   Membership      @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  castAt       DateTime        @default(now())
+  method       String          @default("WEB")
+
+  @@unique([processId, membershipId])
+  @@index([processId])
+  @@map("participations")
+}
+
+// ---------------------------------------------------------------------------
+// Escrutinio y composición
+// ---------------------------------------------------------------------------
+
+model Result {
+  id              String          @id @default(cuid())
+  processId       String
+  process         ElectoralProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
+  validBallots    Int             @default(0)
+  annulledBallots Int             @default(0)
+  /// Participación = válidas + anuladas (INV-16).
+  participation   Decimal         @default(0) @db.Decimal(5, 2)
+  quorumPct       Decimal         @default(85) @db.Decimal(5, 2)
+  quorumMet       Boolean         @default(false)
+  hash            String
+  status          String          @default("ESCRUTADA")
+  /// Composición final: 1 presidente + 1 vicepresidente + (N-2) miembros.
+  composition     Json?
+  proclaimedAt    DateTime?
+  createdAt       DateTime        @default(now())
+
+  candidates      ResultCandidate[]
+
+  @@index([processId])
+  @@map("results")
+}
+
+model ResultCandidate {
+  id                String          @id @default(cuid())
+  resultId          String
+  result            Result          @relation(fields: [resultId], references: [id], onDelete: Cascade)
+  processCandidateId String
+  processCandidate  ProcessCandidate @relation(fields: [processCandidateId], references: [id], onDelete: Cascade)
+  memberVotes       Int             @default(0)
+  presidentVotes    Int             @default(0)
+  elected           Boolean         @default(false)
+  rank              Int?
+  office            Office          @default(NO_ELECTO)
+
+  @@unique([resultId, processCandidateId])
+  @@map("result_candidates")
+}
+
+/// Designación del vicepresidente DESPUÉS del cierre, siempre entre los electos (RGF-18).
+model VicePresidentDesignation {
+  id             String          @id @default(cuid())
+  processId      String
+  process        ElectoralProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
+  /// Electo efectivamente designado.
+  electedId      String
+  /// Electo recomendado por el sistema (siguiente más votado).
+  recommendedId  String?
+  designatedBy   String?
+  /// Motivo del cambio respecto de la recomendación.
+  reason         String?
+  acta           String?
+  designatedAt   DateTime        @default(now())
+  status         String          @default("DESIGNADA")
+
+  @@map("vice_president_designations")
+}
+
+/// Dimisión, separación, incapacidad o fallecimiento (RGF-31).
+model VacancyEvent {
+  id             String          @id @default(cuid())
+  processId      String
+  process        ElectoralProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
+  office         Office
+  type           VacancyType
+  reason         String?
+  acta           String?
+  /// Sucesor efectivo.
+  successorId    String?
+  /// Sucesor recomendado por el sistema.
+  recommendedId  String?
+  occurredAt     DateTime        @default(now())
+  status         String          @default("ABIERTA")
+  /// Versión de composición tras el cambio (append-only).
+  compositionVersion Int          @default(1)
+
+  @@map("vacancy_events")
+}
+
+// ---------------------------------------------------------------------------
+// Comisión, actas, reclamaciones, auditoría
+// ---------------------------------------------------------------------------
+
+model Commission {
+  id             String          @id @default(cuid())
+  processId      String          @unique
+  process        ElectoralProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
+  presidentId    String?
+  vicePresidentId String?
+  /// Representantes de brigada, según Art. 47.
+  members        String[]        @default([])
+  acta           String?
+  constitutedAt  DateTime        @default(now())
+
+  seats          CommissionSeat[]
+
+  @@map("commissions")
+}
+
+model CommissionSeat {
+  id           String     @id @default(cuid())
+  commissionId String
+  commission   Commission @relation(fields: [commissionId], references: [id], onDelete: Cascade)
+  userId       String
+  user         User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         String
+
+  @@unique([commissionId, userId])
+  @@map("commission_seats")
+}
+
+model Act {
+  id         String          @id @default(cuid())
+  processId  String
+  process    ElectoralProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
+  type       String
+  content    Json
+  hash       String
+  signedAt   DateTime?
+  signers    String[]        @default([])
+  createdAt  DateTime        @default(now())
+
+  signedBy   User?           @relation(fields: [signedById], references: [id])
+  signedById String?
+
+  @@index([processId])
+  @@map("acts")
+}
+
+model Claim {
+  id         String          @id @default(cuid())
+  processId  String
+  process    ElectoralProcess @relation(fields: [processId], references: [id], onDelete: Cascade)
+  filedBy    String?
+  reason     String
+  status     String          @default("ABIERTA")
+  /// Plazo de presentación: 5 días hábiles tras la publicación (RGF-20).
+  deadline   DateTime?
+  /// Plazo de resolución: 15 días hábiles (RGF-20).
+  resolutionDeadline DateTime?
+  resolution String?
+  createdAt  DateTime        @default(now())
+
+  @@index([processId])
+  @@map("claims")
+}
+
+/// Traza append-only. Toda transición de estado escribe aquí.
+model AuditEvent {
+  id           String          @id @default(cuid())
+  processId    String?
+  process      ElectoralProcess? @relation(fields: [processId], references: [id], onDelete: Cascade)
+  actorId      String?
+  actor        User?           @relation(fields: [actorId], references: [id])
+  actorCi      String?
+  actorRole    String?
+  action       String
+  entity       String          @default("PROCESO")
+  details      Json?
+  prevHash     String?
+  hash         String?
+  payloadHash  String          @default("")
+  occurredAt   DateTime        @default(now())
+  sequence     Int
+
+  @@index([processId, sequence])
+  @@map("audit_events")
+}
+
+// ---------------------------------------------------------------------------
+// Importación y Reglamento
+// ---------------------------------------------------------------------------
+
+model ImportBatch {
+  id              String       @id @default(cuid())
+  processId       String?
+  process         ElectoralProcess? @relation(fields: [processId], references: [id], onDelete: SetNull)
+  kind            ImportKind
+  fileName        String
+  fileHash        String
+  templateVersion String
+  status          ImportStatus @default(VALIDATED)
+  rowsOk          Int          @default(0)
+  rowsError       Int          @default(0)
+  createdAt       DateTime     @default(now())
+
+  errors          ImportError[]
+
+  @@index([processId])
+  @@map("import_batches")
+}
+
+model ImportError {
+  id        String       @id @default(cuid())
+  batchId   String
+  batch     ImportBatch  @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  rowNumber Int
+  field     String?
+  message   String
+
+  @@map("import_errors")
+}
+
+/// Texto literal de un artículo del Reglamento, con su fuente (RGF-33).
+/// El PDF contiene tres documentos que reinician la numeración, por eso la
+/// clave es (documento, parte, artículo).
+model RegulationArticle {
+  id           String   @id @default(cuid())
+  document     String
+  /// DECLARACION_FINAL, ESTATUTOS o REGLAMENTO.
+  part         String   @default("REGLAMENTO")
+  article      String
+  page         Int?
+  literalText  String
+  sourceHash   String
+  active       Boolean  @default(true)
+  createdAt    DateTime @default(now())
+
+  @@unique([document, part, article])
+  @@index([document, part])
+  @@map("regulation_articles")
+}

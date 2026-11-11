@@ -2,7 +2,7 @@
 
 ## 1. Resumen ejecutivo
 
-Sistema web para elegir el **Secretariado de la Facultad de Ingeniería Informática** (FEU, Cuba). Alcance v1: solo Facultad. El modelo es multi-nivel configurable, pero **sede, filial, residencia, centro y nacional no se implementan** (solo están modelados en datos y documentados como trabajo futuro). No hay código aún; solo documentación vigente en `docs/migracion-web/08-marco-legal-feu.md` y `docs/migracion-web/09-plan-implementacion-facultad.md`. La siguiente IA debe continuar con F0 (cierre de decisiones) y luego F1 (scaffold).
+Sistema web para elegir el **Secretariado de la Facultad de Ingeniería Informática** (FEU). Alcance v1: solo Facultad. El modelo es multi-nivel configurable, pero **sede, filial, residencia, centro y nacional no se implementan** (solo están modelados en datos y documentados como trabajo futuro). No hay código aún; solo documentación vigente en `docs/migracion-web/08-marco-legal-feu.md` y `docs/migracion-web/09-plan-implementacion-facultad.md`. La siguiente IA debe continuar con F0 (cierre de decisiones) y luego F1 (scaffold).
 
 Regla central: `N = cantidad de candidatos − 2`. La demo usa **11 candidatos → 9 puestos**. `N` no se configura por separado; se deriva de la lista cargada. Mínimo 5 candidatos (`N ≥ 3`).
 
@@ -24,11 +24,18 @@ Regla central: `N = cantidad de candidatos − 2`. La demo usa **11 candidatos �
 
 - `ABC-FEU-2019.pdf` analizado (114 páginas). Texto extraído temporal en `C:\Users\Adrián Rodríguez\AppData\Local\Temp\opencode\abc-feu-2019.txt`.
 - Documentos `01`–`07` eliminados.
-- Vigentes: `08` (marco legal y reglas generalizadas), `09` (plan de implementación) y `10` (acta F0 + matriz de trazabilidad).
-- No hay código fuente todavía; solo documentación.
-- **F0 cerrada técnicamente** (acta, decisiones y matriz RGF → prueba en `10`). Pendiente solo la firma, que no bloquea.
-- Plan: 32 pw en 8 fases (F0–F8), 20–24 semanas con 2 dev + 0,5 QA + 0,25 diseño + 0,2 DevOps.
-- **Punto de arranque: F1** (3 pw) — scaffold, modelo de datos, brigadas, auditoría, seed y módulo Reglamento.
+- Vigentes: `08` (marco legal y reglas generalizadas), `09` (plan de implementación), `10` (acta F0 + matriz de trazabilidad) y `11` (decisiones técnicas de F1).
+- **F0 cerrada técnicamente** (acta, decisiones y matriz RGF → prueba en `10`).
+- **F1 cerrada técnicamente y desplegada:** Next.js 15 + Prisma en la raíz, dominio puro (`src/domain/`), build de producción optimizado, y endpoints de salud (`/api/health`) y Reglamento (`/api/reglamento`).
+- **F2 completada y verificada:** Dominio puro de Carnet de Identidad (`ci.ts`), validación e importación de padrón con plantilla oficial (`padron.ts`), constitución y actas de la Comisión Electoral (`commission.ts`), matriz de permisos y un voto por miembro (`permissions.ts`), y autenticación/activación/MFA TOTP (`auth.ts`). 77 pruebas unitarias en verde.
+- **F3 completada y verificada:** Orden alfabético determinista de candidaturas (`candidates.ts`), biografía en Markdown sanitizada con hash SHA-256 (`INV-17`), snapshot inmutable de boleta, configuración dinámica del proceso sin valores fijos (`config.ts`, umbral >85 %, margen N=C-2), e importación incremental con merge por CI deduplicado (`importPadronIncremental`). Endpoints `/api/eleccion/config`, `/api/candidatos/snapshot` y `/api/padron/import`.
+- **F4 completada y desplegada:** Interfaz de boleta oficial de 4 columnas (Art. 60), diseño responsive para escritorio y tarjetas táctiles adaptables para Android, validación reactiva sin citas de artículos al votante, radio button transferible de presidencia condicionado a membresía, anulación voluntaria en 2 pasos (`ANULADA_POR_ELECTOR`), urna ciega desacoplada (`INV-04`), botón de copiado instantáneo de comprobante (`📋 Copiar Comprobante`) y modal de verificación criptográfica de boletas inmutables (`ReceiptVerifierModal`). Endpoint `POST /api/voto/emitir` y `GET /api/voto/comprobante`.
+- **F5 completada y desplegada:** Escrutinio oficial auditable (`tally.ts`), cálculo estricto de participación mínima requerida (>85 %, Art. 38), detección de empates en corte o presidencia con llamado a segunda vuelta (Art. 40), designación reglamentaria de Vicepresidente por la Comisión (Art. 67), acta formal imprimible y exportación a CSV. Endpoints `POST /api/escrutinio` y `POST /api/comision/designar-vp`.
+- **F6 completada y desplegada (excepto 6.3):** Módulo interactivo «Reglamento» (`/api/reglamento`, `ReglamentoViewer.tsx`), gestión y sucesión de vacantes (`vacancies.ts`, `/api/comision/vacante`), exportación de Acta Oficial a PDF descargable con jspdf (`pdfActa.ts`), y panel de Observación (`ObserverPanel.tsx`).
+- **F7 completada y desplegada:** Persistencia relacional ACID conectada a PostgreSQL 16 local con Prisma ORM (`src/server/db-postgres.ts`, `postgresql://postgres:kote020919@localhost:5432/feu`) y separación estricta de urna ciega (`INV-04`), autenticación de electores y oficiales con modal interactivo y MFA TOTP obligatorio (`AuthModal.tsx`, `/api/auth/login`, `/api/auth/totp/current`), blindaje WORM con triggers nativos PL/pgSQL que abortan mutaciones o borrados sobre boletas y auditoría (Art. 66 / RGF-33), serialización canónica RFC 8785 para la cadena de auditoría, y limitador de tasa deslizante (`rate-limiter.ts`).
+- **Identidad visual e higiene normativa:** Integración de la tríada institucional oficial (CUJAE, FEU, Facultad de Ingeniería Informática), favicon generado a partir del escudo de la Facultad, erradicación completa de términos no estatutarios («Padrón» reemplazado por «Membresía / Listado de Electores», «Quórum» reemplazado por «Participación requerida >85 %», y eliminación de «CUBA», «orca» y hashes crudos en la interfaz visual).
+- **Autenticación real e interfaz de producción:** Acceso de electores mediante Nombre registrado y Carnet de Identidad como contraseña provisional, cero dependencia de correos electrónicos, eliminación de dropdowns de suplantación de electores en la boleta, erradicación de hashes visuales, control estricto de roles (`ADMIN`, `COMMISSION`, `VOTER`, `OBSERVER`), y 101 pruebas unitarias en verde (`npm run test`), 0 errores de ESLint, build de producción Next.js 15 activo en `http://localhost:3000` con PostgreSQL 16.
+- **Principio estricto de UX e higiene institucional:** Aplicación del principio «No mostrar al usuario lo que no puede hacer». Eliminación de todas las referencias técnicas internas en la UI (`(INV-04)`, `(INV-06)`, `(RFC 8785)`). Footer consolidado en una sola línea con `FEU` destacado en rojo carmesí. Paleta visual adaptada al color institucional dorado/ámbar de la Facultad de Ingeniería Informática con contraste WCAG AA, reservando el rojo únicamente para las siglas de la FEU. Vistas segregadas herméticamente: visitantes ven portal de login y auditoría pública; votantes ven únicamente su boleta y reglamento; observadores ven panel de observación y auditoría; comisión/admin ven la consola de gestión completa.
 
 ## 4. Decisiones tomadas y su justificación
 
@@ -100,6 +107,8 @@ Regla central: `N = cantidad de candidatos − 2`. La demo usa **11 candidatos �
 | Marco legal | `docs/migracion-web/08-marco-legal-feu.md` | Análisis legal, reglas RGF, modelo de dominio, escalabilidad |
 | Plan de implementación | `docs/migracion-web/09-plan-implementacion-facultad.md` | Plan vigente, estados, fases, pruebas, backlog, checklist |
 | Acta F0 y trazabilidad | `docs/migracion-web/10-acta-f0-y-matriz-trazabilidad.md` | Decisiones cerradas, alcance congelado, matriz RGF → prueba (34 reglas) |
+| Decisiones técnicas F1 | `docs/migracion-web/11-decisiones-tecnicas-f1.md` | Estructura de carpetas, dominio puro, enums, restricciones de base de datos, módulo Reglamento |
+| Código de la aplicación | raíz del repositorio | Next.js en la raíz: `app/`, `src/domain/`, `src/server/`, `prisma/`, `tests/`, `scripts/` |
 | Handout | `docs/handout-continuidad.md` | Este documento |
 | Fuente normativa | `ABC-FEU-2019.pdf` | Reglamento FEU (114 páginas) |
 | Texto extraído | `C:\Users\Adrián Rodríguez\AppData\Local\Temp\opencode\abc-feu-2019.txt` | Texto temporal para citas |
@@ -138,14 +147,72 @@ Regla central: `N = cantidad de candidatos − 2`. La demo usa **11 candidatos �
 | R-02 | Conteo/empate/segunda vuelta incorrectos | Propiedades, verificador independiente, escenarios dorados |
 | R-03 | VP o sucesión mal registrada | Flujo post-electoral, acta, versiones de composición |
 
-## 9. Próximos pasos priorizados
+## 9. Lista de tareas por fases para despliegue productivo
 
-1. **F1 — Plataforma y modelo (3 pw):** scaffold Next.js 15 + TypeScript estricto, `structures`, `memberships`, `electoral_processes`, CRUD de brigadas, auditoría append-only, seed de la Facultad (11 candidatos → 9 puestos) y seed del módulo Reglamento. Entregable: staging con migraciones y proceso en `BORRADOR`.
-2. **F2 — Identidad, padrón, roles y Comisión (4 pw):** login, MFA para ADMIN/COMMISSION, importación CSV/XLSX con plantilla descargable y validación por fila, roles `ADMIN`/`COMMISSION`/`VOTER`/`OBSERVER`, Comisión constituida con acta.
-3. **F3 — Candidatos y configuración (3 pw):** asistente inicial (cantidad de candidatos, ventana, cierre anticipado), candidatos desde datos importados, biografía `.md`, derivación de `N`, snapshot inmutable.
-4. **F4 — Boleta y emisión (5 pw):** boleta de 4 columnas y `N+2` filas, validación inline, anulación en dos pasos, biografía legible, comprobante verificable.
-5. **F5 — Escrutinio, empates, VP y proclamación (6 pw):** motor idempotente, quórum, segunda vuelta, designación de VP, vacantes, acta.
-6. **F6–F8:** reportes, seguridad, carga, piloto y corte.
+> **Instrucción de uso:** Ir marcando (`[x]`) o eliminando los elementos a medida que se completen en el desarrollo para mantener el estado exacto del despliegue.
+
+### Fases Completadas (F0 a F5)
+- [x] **F0 · Cierre de decisiones y marco legal:** Acta de decisiones, alcance v1 exclusivo de Facultad, matriz de 34 reglas RGF (`10-acta-f0-y-matriz-trazabilidad.md`).
+- [x] **F1 · Scaffold y dominio puro:** Next.js 15.5 + React 19 + Tailwind 4, esquema Prisma, dominio base (`seats.ts`, `ballot.ts`, `quorum.ts`, `tally.ts`, `states.ts`).
+- [x] **F2 · Membresía, validaciones y Comisión:** Validador de Carnet de Identidad (`ci.ts`), plantilla e importación CSV con reglas de brigadas 3-45 (`padron.ts`), constitución de la Comisión Electoral (`commission.ts`), permisos y un voto por elector (`permissions.ts`), y autenticación/activación/MFA TOTP (`auth.ts`).
+- [x] **F3 · Candidaturas y configuración dinámica:** Orden alfabético determinista (`candidates.ts`), biografía Markdown sanitizada con SHA-256 (`INV-17`), snapshot inmutable, configuración dinámica sin constantes (`config.ts`), e importación incremental con merge por CI deduplicado (`importPadronIncremental`).
+- [x] **F4 · Boleta electoral y emisión:** Boleta oficial de 4 columnas (desktop) y tarjetas táctiles adaptables (Android), validación reactiva sin citas legales al elector, botón de copiado de comprobante (`📋 Copiar Comprobante`), urna ciega desacoplada (`INV-04`), anulación voluntaria en 2 pasos y verificación de boletas inmutables por comprobante (`ReceiptVerifierModal`).
+- [x] **F5 · Escrutinio y proclamación:** Motor de escrutinio determinista e idempotente (`tally.ts`), cálculo de participación requerida (>85 %, Art. 38), detección de empates en corte o presidencia con llamado a segunda vuelta (Art. 40), designación de Vicepresidente por la Comisión (Art. 67), acta formal imprimible y exportación a CSV.
+
+---
+
+### FASE 6 · Módulo Reglamento, Vacantes, Reclamaciones y Exportaciones
+- [x] **6.1 Módulo interactivo «Reglamento» en UI:**
+  - Pestaña de navegación para consultar los artículos aplicables del ABC de la FEU (2019).
+  - Buscador reactivo por palabra clave y filtro por número de artículo.
+  - Citas textuales literales con indicación de página del documento oficial (conectado a `/api/reglamento`).
+- [x] **6.2 Flujo post-electoral de Vacantes y Sucesión Presidencial (Arts. 99–102):**
+  - Panel administrativo para registrar la dimisión o separación del presidente.
+  - Sucesión automática por defecto del Vicepresidente, con opción para la Comisión de designar a otro miembro electo.
+  - Generación de nueva versión inmutable de la composición del Secretariado (`src/domain/vacancies.ts` y `/api/comision/vacante`).
+- [ ] ~~**6.3 Registro y Seguimiento de Reclamaciones e Impugnaciones (Arts. 103–106):**~~ *(Excluido a solicitud del usuario)*
+- [x] **6.4 Exportación de Acta Oficial a PDF descargable:**
+  - Generación de archivo PDF oficial descargable con membrete institucional, firmas de la Comisión y hash SHA-256 del resultado electoral mediante `jspdf` (`src/utils/pdfActa.ts`).
+- [x] **6.5 Panel de Observadores Electorales (`OBSERVER`):**
+  - Vista restringida/pública de sólo lectura con métricas de afluencia en tiempo real, trazabilidad de apertura/cierre y verificación de urna ciega sin acceso a datos privados de los votantes (`ObserverPanel.tsx`).
+
+---
+
+### FASE 7 · Persistencia Relacional (Prisma + PostgreSQL), MFA Operativo y Seguridad
+- [x] **7.1 Persistencia relacional en base de datos PostgreSQL:**
+  - Persistencia relacional ACID completa en **PostgreSQL 16** mediante **Prisma ORM 6.19.3** (`postgresql://postgres:kote020919@localhost:5432/feu?schema=public`).
+  - Sincronización reactiva con `election-store.ts` y rutas de autenticación (`/api/auth/login`, `/api/auth/activar`, `/api/auth/totp/current`, `/api/voto/emitir`, `/api/escrutinio`).
+  - Separación estricta en tablas: `participations` (registro de emisión sin boleta ni comprobante) y `ballots` (boletas inmutables con `receipt_hash` sin voter_id ni membership_id) para garantizar la Urna Ciega (`INV-04`).
+  - Serialización canónica de JSON (RFC 8785) en la cadena de auditoría WORM para blindar la verificación matemática SHA-256 frente a reorganizaciones de claves JSON del motor PostgreSQL.
+  - Blindaje WORM con funciones y triggers nativos PL/pgSQL (`fn_prevent_ballot_mutation`, `fn_prevent_audit_mutation`, `trg_prevent_ballot_update`, `trg_prevent_ballot_delete`, `trg_prevent_audit_update`, `trg_prevent_audit_delete`) que impiden a nivel de motor cualquier modificación o borrado.
+  - Verificación E2E completa automatizada en `scripts/test_phase7_flow.py` ejecutándose contra PostgreSQL.
+- [x] **7.2 Sistema de autenticación de electores y MFA TOTP activo (Modelo de Producción):**
+  - Modal formal e interactivo de autenticación profesional (`AuthModal.tsx`), eliminando pestañas demo y botones de acceso simulado.
+  - Credenciales provisionales oficiales: **Usuario = Nombre registrado** (búsqueda flexible por nombre completo o apellidos) y **Contraseña = Carnet de Identidad** (11 dígitos).
+  - Eliminación estricta y total de solicitudes de correo electrónico en interfaz, validación y activación.
+  - Los 23 estudiantes registrados en el Listado de Electores de la Facultad cuentan con cuenta de usuario activa con su CI como contraseña inicial.
+  - Segundo factor de autenticación TOTP obligatorio para roles oficiales (`ADMIN` y `COMMISSION`), con soporte de código activo.
+  - Blindaje en la emisión del voto (`VoterBallot.tsx`): eliminación definitiva del `<select id="electorSelect">`. La boleta queda bloqueada a la identidad del usuario autenticado; los visitantes no autenticados disponen de una pantalla institucional para iniciar sesión o auditar boletas por comprobante.
+  - Control de acceso por roles (`ADMIN`, `COMMISSION`, `VOTER`, `OBSERVER`) aplicado a nivel de navegación y componentes.
+  - Erradicación total de hashes visuales crudos en la interfaz de usuario.
+- [x] **7.3 Mecanismo WORM y retención criptográfica (≥1 año, Art. 66):**
+  - Triggers SQL a nivel de motor de base de datos (`prevent_ballot_update`, `prevent_ballot_delete`, `prevent_audit_update`, `prevent_audit_delete`) que abortan cualquier intento de mutación o borrado de boletas o auditoría.
+  - Cadena inmutable SHA-256 de auditoría (hash-chain append-only) con verificación de integridad matemática vía `/api/auditoria`.
+- [x] **7.4 Rate Limiting y endurecimiento:**
+  - Limitador de tasa con ventana deslizante (`rate-limiter.ts`) aplicado a `/api/voto/emitir`, `/api/auth/login` y `/api/auth/activar` retornando HTTP 429 con cabecera `Retry-After`.
+
+---
+
+### FASE 8 · Pruebas de Carga, Simulacro y Puesta a Punto para Despliegue
+- [ ] **8.1 Suite de pruebas de carga y concurrencia:**
+  - Script automatizado de estrés para simular 300 electores concurrentes y 2 000 boletas en ráfaga.
+  - Verificación de SLOs: tiempo de emisión de boleta p95 < 800 ms, escrutinio < 10 s.
+- [ ] **8.2 Contenedor Docker y Runbook Operativo de Despliegue:**
+  - Creación de `Dockerfile` multi-stage optimizado para Next.js 15 y `docker-compose.yml` (App + PostgreSQL).
+  - Runbook de contingencia con procedimientos paso a paso para el día de la elección (apertura manual de urnas, cierre anticipado, respaldo en caliente y restauración ante cortes eléctricos o caída de red).
+- [ ] **8.3 Simulacro general y aceptación UAT:**
+  - Ensayo integral con la Comisión Electoral utilizando datos de prueba antes de importar el listado real de la facultad.
+  - Verificación de firmas y exportación del acta de simulacro sin discrepancias.
 
 ## 10. Instrucciones de estilo y formato para la siguiente IA
 
@@ -161,7 +228,7 @@ Regla central: `N = cantidad de candidatos − 2`. La demo usa **11 candidatos �
 ## 11. PROMPT PARA LA SIGUIENTE IA
 
 ```
-Continúa el proyecto de sistema web para elegir el Secretariado de la Facultad de Ingeniería Informática (FEU, Cuba). Trabaja como desarrollador full-stack y especialista en continuidad de contexto. Tu fuente de verdad son los documentos docs/migracion-web/08-marco-legal-feu.md (marco legal y RGF), docs/migracion-web/09-plan-implementacion-facultad.md (plan vigente) y docs/migracion-web/10-acta-f0-y-matriz-trazabilidad.md (acta F0 y matriz de trazabilidad), más el PDF ABC-FEU-2019.pdf.
+Continúa el proyecto de sistema web para elegir el Secretariado de la Facultad de Ingeniería Informática (FEU). Trabaja como desarrollador full-stack y especialista en continuidad de contexto. Tu fuente de verdad son los documentos docs/migracion-web/08-marco-legal-feu.md (marco legal y RGF), docs/migracion-web/09-plan-implementacion-facultad.md (plan vigente) y docs/migracion-web/10-acta-f0-y-matriz-trazabilidad.md (acta F0 y matriz de trazabilidad), más el PDF ABC-FEU-2019.pdf.
 
 Contexto clave:
 - Alcance v1: solo Facultad. Modelo multi-nivel configurable, pero otros niveles solo documentados (sin código ni UI).

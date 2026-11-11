@@ -1,0 +1,46 @@
+@import "tailwindcss";
+
+/*
+ * Tema verde/amarillo de la FEU.
+ * Contraste AA obligatorio en texto sobre fondo (docs/migracion-web/09 §2.1).
+ * Tokens en OKLCH para mantener la luminancia estable al ajustar el matiz.
+ */
+@theme {
+  --color-feu-green-50: oklch(97% 0.02 150);
+  --color-feu-green-100: oklch(93% 0.05 150);
+  --color-feu-green-300: oklch(80% 0.13 150);
+  --color-feu-green-500: oklch(66% 0.16 150);
+  --color-feu-green-700: oklch(48% 0.13 150);
+  --color-feu-green-900: oklch(32% 0.08 150);
+
+  --color-feu-yellow-50: oklch(98% 0.03 95);
+  --color-feu-yellow-100: oklch(95% 0.07 95);
+  --color-feu-yellow-300: oklch(88% 0.14 95);
+  --color-feu-yellow-500: oklch(78% 0.16 95);
+  --color-feu-yellow-700: oklch(60% 0.12 95);
+  --color-feu-yellow-900: oklch(38% 0.08 95);
+
+  --color-cujae-green-50: #EDF7F4;
+  --color-cujae-green-100: #D5ECE4;
+  --color-cujae-green-500: #136D54;
+  --color-cujae-green-700: #0C4B39;
+  --color-cujae-green-900: #062B21;
+
+  --color-feu-carmesi-50: #FBF0F3;
+  --color-feu-carmesi-100: #F6DFE5;
+  --color-feu-carmesi-500: #8F1639;
+  --color-feu-carmesi-700: #6B0E27;
+  --color-feu-carmesi-900: #460616;
+
+  --color-info-yellow-500: #F9E01A;
+  --color-info-yellow-600: #D8C108;
+}
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background-color: var(--color-feu-green-50);
+  color: var(--color-feu-green-900);
+}
