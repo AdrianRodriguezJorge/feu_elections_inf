@@ -287,9 +287,9 @@ async function main() {
   // 8. Listado de Electores (Padrón)
   // Incluye el administrador, las autoridades electorales y los 10 estudiantes
   const allElectors = [
-    { ci: adminUser.ci, firstName: "Adrian", firstSurname: "", secondSurname: null, fullName: "Adrian", brigadeCode: "41" },
-    { ci: commissionPresident.ci, firstName: "Liz", firstSurname: "", secondSurname: null, fullName: "Liz", brigadeCode: "41" },
-    { ci: commissionSecond.ci, firstName: "Revisor", firstSurname: "", secondSurname: null, fullName: "Revisor", brigadeCode: "41" },
+    { ci: adminUser.ci!, firstName: "Adrian", firstSurname: "", secondSurname: null, fullName: "Adrian", brigadeCode: "41" },
+    { ci: commissionPresident.ci!, firstName: "Liz", firstSurname: "", secondSurname: null, fullName: "Liz", brigadeCode: "41" },
+    { ci: commissionSecond.ci!, firstName: "Revisor", firstSurname: "", secondSurname: null, fullName: "Revisor", brigadeCode: "41" },
     ...ELECTORS,
   ];
 
