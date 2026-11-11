@@ -4,7 +4,7 @@
   "private": true,
   "description": "Sistema de elección del Secretariado de la Facultad de Ingeniería Informática (FEU)",
   "engines": {
-    "node": "20.x"
+    "node": "26.x"
   },
   "scripts": {
     "dev": "next dev",
