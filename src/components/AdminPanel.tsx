@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Play, Square, RefreshCw, Check, AlertTriangle, Lock } from "lucide-react";
+import { Play, Square, Check, AlertTriangle, Lock } from "lucide-react";
 import { ProcessCandidateSnapshot } from "@/domain/candidates";
 import { ProcessConfig } from "@/domain/config";
 import { BiographyModal } from "./BiographyModal";
@@ -161,13 +161,6 @@ export function AdminPanel({
                 <span>Cerrar Votación y Sellar Urnas</span>
               </button>
             )}
-            <button
-              onClick={() => handleProcessAction("REINICIAR")}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-            >
-              <RefreshCw className="h-3.5 w-3.5 text-gray-500" strokeWidth={2} />
-              <span>Reiniciar Urnas</span>
-            </button>
           </div>
         </div>
 
@@ -412,7 +405,13 @@ export function AdminPanel({
                 </p>
               </div>
               <span className="rounded-full bg-feu-green-100 px-3 py-1 text-xs font-bold text-feu-green-800 uppercase">
-                {member.office}
+                {member.office === "PRESIDENT"
+                  ? "PRESIDENTA"
+                  : member.office === "VICE_PRESIDENT"
+                  ? "REVISOR / 2DO MIEMBRO"
+                  : member.office === "SECRETARY"
+                  ? "SECRETARIA"
+                  : member.office}
               </span>
             </div>
           ))}

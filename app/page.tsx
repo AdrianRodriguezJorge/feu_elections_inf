@@ -172,6 +172,7 @@ export default function Home() {
             onSelectVoter={() => {}}
             onVoteCast={loadState}
             currentUser={currentUser}
+            status={summary.status}
           />
         )}
 

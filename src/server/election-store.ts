@@ -79,7 +79,7 @@ const DEMO_VOTERS: PadronRecord[] = [
 ];
 
 class ElectionStore {
-  public status: ProcessStatus = "ABIERTA";
+  public status: ProcessStatus = "CONVOCADO";
   public config: ProcessConfig = { ...DEFAULT_PROCESS_CONFIG };
   public candidates: CandidateInput[] = [...DEMO_CANDIDATES];
   public snapshot: ProcessCandidateSnapshot[] = [];
@@ -91,9 +91,8 @@ class ElectionStore {
   public ballots: StoredBallot[] = [];
 
   public commission: CommissionMember[] = [
-    { ci: "02031194852", name: "Elena García Méndez", office: "PRESIDENT", brigadeCode: "32" },
-    { ci: "04012285913", name: "Frank Hernández Pérez", office: "VICE_PRESIDENT", brigadeCode: "41" },
-    { ci: "03071592844", name: "Giselle López Reyes", office: "SECRETARY", brigadeCode: "11" },
+    { ci: "06091668099", name: "Liz", office: "PRESIDENT", brigadeCode: "41" },
+    { ci: "11111111111", name: "Revisor", office: "VICE_PRESIDENT", brigadeCode: "41" },
   ];
 
   public tallyResult: TallyResult | null = null;

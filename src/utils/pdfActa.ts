@@ -206,20 +206,17 @@ export function generateActaPdf(params: GenerateActaPdfParams) {
 
   // Líneas de firma
   doc.setDrawColor(150, 150, 150);
-  doc.line(25, y, 65, y);
-  doc.line(85, y, 125, y);
-  doc.line(145, y, 185, y);
+  doc.line(40, y, 90, y);
+  doc.line(120, y, 170, y);
 
-  doc.text("Elena García Méndez", 45, y + 4, { align: "center" });
-  doc.text("Frank Hernández Pérez", 105, y + 4, { align: "center" });
-  doc.text("Giselle López Reyes", 165, y + 4, { align: "center" });
+  doc.text("Liz", 65, y + 4, { align: "center" });
+  doc.text("Revisor", 145, y + 4, { align: "center" });
 
   doc.setFont("helvetica", "normal");
   doc.setFontSize(7);
   doc.setTextColor(100, 100, 100);
-  doc.text("Presidente de la Comisión", 45, y + 7.5, { align: "center" });
-  doc.text("Vicepresidente de la Comisión", 105, y + 7.5, { align: "center" });
-  doc.text("Secretario de la Comisión", 165, y + 7.5, { align: "center" });
+  doc.text("Presidenta de la Comisión", 65, y + 7.5, { align: "center" });
+  doc.text("Revisor / 2do Miembro", 145, y + 7.5, { align: "center" });
 
   // Pie de página
   doc.setFontSize(6.5);

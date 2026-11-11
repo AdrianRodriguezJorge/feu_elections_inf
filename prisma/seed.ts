@@ -239,13 +239,13 @@ async function main() {
     candidateMap.set(c.ci, candRecord.id);
   }
 
-  // 6. Proceso Electoral en ABIERTA
+  // 6. Proceso Electoral en CONVOCADO
   const process = await prisma.electoralProcess.create({
     data: {
       structureId: faculty.id,
       type: ProcessType.SECRETARIADO,
       academicYear: "2026-2027",
-      status: ProcessStatus.ABIERTA,
+      status: ProcessStatus.CONVOCADO,
       candidatesCount: CANDIDATES.length,
       seats,
       proposalSlots: 0,

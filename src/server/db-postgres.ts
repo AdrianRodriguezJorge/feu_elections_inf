@@ -207,11 +207,46 @@ class PostgresDatabase {
     }));
 
     // 5. Comisión Electoral
-    const commission: PostgresCommissionRow[] = [
-      { ci: "02031194852", name: "Elena García Méndez", office: "PRESIDENT", brigadeCode: "32" },
-      { ci: "04012285913", name: "Frank Hernández Pérez", office: "VICE_PRESIDENT", brigadeCode: "41" },
-      { ci: "03071592844", name: "Giselle López Reyes", office: "SECRETARY", brigadeCode: "11" },
-    ];
+    const dbCommission = await prisma.commission.findFirst({
+      where: { processId: process.id },
+      include: {
+        seats: {
+          include: {
+            user: {
+              include: {
+                membership: {
+                  include: { brigade: true },
+                },
+              },
+            },
+          },
+        },
+      },
+    });
+
+    let commission: PostgresCommissionRow[] = [];
+    if (dbCommission && dbCommission.seats.length > 0) {
+      commission = dbCommission.seats.map((seat) => {
+        const mem = seat.user.membership;
+        const office: "PRESIDENT" | "VICE_PRESIDENT" | "SECRETARY" | "MEMBER" =
+          seat.role === "PRESIDENTE"
+            ? "PRESIDENT"
+            : seat.role === "SECRETARIO"
+            ? "SECRETARY"
+            : "VICE_PRESIDENT";
+        return {
+          ci: seat.user.ci || "",
+          name: seat.user.name || "Autoridad Electoral",
+          office,
+          brigadeCode: mem?.brigade?.code || "41",
+        };
+      });
+    } else {
+      commission = [
+        { ci: "06091668099", name: "Liz", office: "PRESIDENT", brigadeCode: "41" },
+        { ci: "11111111111", name: "Revisor", office: "VICE_PRESIDENT", brigadeCode: "41" },
+      ];
+    }
 
     // 6. Auditoría WORM
     const auditRows = await prisma.auditEvent.findMany({

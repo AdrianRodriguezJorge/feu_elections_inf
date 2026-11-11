@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Clipboard, Check, Search, AlertCircle, AlertTriangle, Vote, Star, Plus } from "lucide-react";
+import { Clipboard, Check, Search, AlertCircle, AlertTriangle, Vote, Star, Plus, Clock } from "lucide-react";
 import { ProcessCandidateSnapshot } from "@/domain/candidates";
 import { BallotSelection } from "@/domain/types";
 import { BiographyModal } from "./BiographyModal";
@@ -25,6 +25,7 @@ interface VoterBallotProps {
   onVoteCast: () => void;
   currentUser?: AuthUser | null;
   onOpenAuth?: () => void;
+  status?: string;
 }
 
 export function VoterBallot({
@@ -36,6 +37,7 @@ export function VoterBallot({
   onVoteCast,
   currentUser,
   onOpenAuth,
+  status,
 }: VoterBallotProps) {
   // Estado local de selecciones en la boleta
   const [memberMarks, setMemberMarks] = useState<Set<string>>(new Set());
@@ -228,6 +230,26 @@ export function VoterBallot({
       setIsSubmitting(false);
     }
   };
+
+  // Si la votación aún no está ABIERTA
+  if (status && status !== "ABIERTA") {
+    return (
+      <div className="mx-auto max-w-2xl rounded-2xl border border-gray-200 bg-white p-8 sm:p-12 text-center shadow-lg">
+        <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-amber-50 text-amber-700 ring-8 ring-amber-50/50">
+          <Clock className="h-10 w-10 text-amber-600" strokeWidth={2} />
+        </div>
+        <span className="inline-block rounded-full bg-amber-100 px-3.5 py-1 text-xs font-bold text-amber-900 uppercase tracking-wide">
+          Proceso {status} · Urnas en Espera
+        </span>
+        <h2 className="mt-3 text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">
+          La Votación aún no ha comenzado
+        </h2>
+        <p className="mt-2 text-sm text-gray-600 max-w-md mx-auto leading-relaxed">
+          El proceso electoral se encuentra convocado. Las autoridades de la Comisión Electoral o el Administrador abrirán formalmente las urnas cuando inicie la jornada de votación.
+        </p>
+      </div>
+    );
+  }
 
   // Si el elector ya votó o acaba de emitir su voto
   if (submitResult || (currentVoter && currentVoter.hasVoted)) {
