@@ -13,15 +13,15 @@ export const STATUS_LABELS: Record<string, string> = {
 };
 
 export const STATUS_COLORS: Record<string, string> = {
-  CONVOCADO: "bg-gray-700 text-white",
-  ABIERTA: "bg-cujae-green-500 text-white",
-  CERRADA: "bg-amber-800 text-white",
-  SIN_QUORUM: "bg-red-700 text-white",
-  EMPATE: "bg-orange-800 text-white",
-  PROCLAMADA: "bg-blue-700 text-white",
-  VP_DESIGNADA: "bg-indigo-700 text-white",
-  FINALIZADA: "bg-cujae-green-700 text-white",
-  VACANTE: "bg-purple-700 text-white",
+  CONVOCADO: "bg-paper-200 text-ink-800",
+  ABIERTA: "bg-action-50 text-action",
+  CERRADA: "bg-warn-50 text-warn-900",
+  SIN_QUORUM: "bg-danger-50 text-danger-900",
+  EMPATE: "bg-warn-50 text-warn-900",
+  PROCLAMADA: "bg-paper-200 text-ink-800",
+  VP_DESIGNADA: "bg-paper-200 text-ink-800",
+  FINALIZADA: "bg-paper-200 text-ink-800",
+  VACANTE: "bg-warn-50 text-warn-900",
 };
 
 export function statusLabel(status: string): string {

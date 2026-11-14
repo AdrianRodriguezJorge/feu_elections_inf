@@ -129,3 +129,24 @@ describe("Elector y autoridad autenticados (S2, S3)", () => {
     expect((await liz.post("/api/eleccion/estado", { action: "ABRIR" })).status).toBe(409);
   });
 });
+
+describe("Rutas protegidas en el servidor (F7)", () => {
+  it("sin sesión, las páginas privadas redirigen al inicio", async () => {
+    const res = await client().request("/comision");
+    expect(res.status).toBe(307);
+    expect(new URL(res.headers.get("location") ?? "", "http://x").pathname).toBe("/");
+  });
+
+  it("un elector que pide /comision acaba en /votar", async () => {
+    const voter = client();
+    expect(await voter.login(CARLOS.ci, VOTER_PASSWORD)).toBeNull();
+    const res = await voter.request("/comision");
+    expect(res.status).toBe(307);
+    expect(new URL(res.headers.get("location") ?? "", "http://x").pathname).toBe("/votar");
+  });
+
+  it("verificar y reglamento son públicos", async () => {
+    expect((await client().request("/verificar")).status).toBe(200);
+    expect((await client().request("/reglamento")).status).toBe(200);
+  });
+});

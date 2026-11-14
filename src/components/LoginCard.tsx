@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { signIn } from "next-auth/react";
-import { AlertCircle, CheckCircle2, ShieldCheck, ArrowRight } from "lucide-react";
+import { AlertCircle, CheckCircle2, ShieldCheck } from "lucide-react";
 import type { LoginErrorCode } from "@/lib/session-user";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -158,10 +158,10 @@ export function LoginCard({ onLoginSuccess }: LoginCardProps) {
   };
 
   return (
-    <div className="w-full max-w-[380px] sm:max-w-[400px]">
-      <div className="rounded-2xl border border-gray-200/90 bg-white p-5 sm:p-6 shadow-xl">
-        <div className="text-center pb-3 border-b border-gray-100">
-          <div className="flex items-center justify-center gap-2.5 mb-2">
+    <div className="w-full max-w-md">
+      <div className="rounded-md border border-line bg-white px-5 py-7 sm:px-8">
+        <div className="text-center pb-5 border-b border-line">
+          <div className="flex items-center justify-center gap-2.5 mb-4">
             {[
               { src: "/logos/cujae_rgba.png", alt: "CUJAE" },
               { src: "/logos/feu_512.png", alt: "FEU" },
@@ -173,10 +173,10 @@ export function LoginCard({ onLoginSuccess }: LoginCardProps) {
             ))}
           </div>
 
-          <h1 className="text-base sm:text-lg font-bold tracking-tight text-gray-900">
+          <h1 className="text-xl font-bold text-ink-900">
             Facultad de Ingeniería Informática
           </h1>
-          <p className="text-xs text-gray-700 mt-0.5">
+          <p className="text-sm text-ink-700 mt-1">
             Elección del Secretariado de la <span className="text-feu-carmesi-500 font-bold">FEU</span> · 2026
           </p>
         </div>
@@ -185,25 +185,25 @@ export function LoginCard({ onLoginSuccess }: LoginCardProps) {
           <div
             id="login-error"
             role="alert"
-            className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-800 border border-red-200 flex items-start gap-2"
+            className="mt-4 flex items-start gap-2 rounded-md border border-danger-200 bg-danger-50 px-4 py-3 text-sm text-danger-900"
           >
-            <AlertCircle className="h-4 w-4 shrink-0 text-red-600 mt-0.5" strokeWidth={2} aria-hidden />
+            <AlertCircle className="h-4 w-4 shrink-0 text-danger-700 mt-0.5" strokeWidth={2} aria-hidden />
             <span className="leading-snug font-medium">{errorMessage}</span>
           </div>
         )}
         {successMessage && !errorMessage && (
           <div
             role="status"
-            className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-900 border border-emerald-200 flex items-start gap-2"
+            className="mt-4 flex items-start gap-2 rounded-md border border-line bg-action-50 px-4 py-3 text-sm text-ink-900"
           >
-            <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-700 mt-0.5" strokeWidth={2} aria-hidden />
+            <CheckCircle2 className="h-4 w-4 shrink-0 text-action mt-0.5" strokeWidth={2} aria-hidden />
             <span className="leading-snug font-medium">{successMessage}</span>
           </div>
         )}
 
         {step === "ACTIVATE" ? (
-          <form onSubmit={handleActivate} className="mt-3.5 space-y-3" noValidate>
-            <p className="text-sm text-gray-700 leading-snug">
+          <form onSubmit={handleActivate} className="mt-5 space-y-4" noValidate>
+            <p className="text-sm text-ink-700 leading-snug">
               Active su cuenta una sola vez antes de que abra la votación. Elija una contraseña que solo usted conozca.
             </p>
             <div className="space-y-1">
@@ -229,7 +229,7 @@ export function LoginCard({ onLoginSuccess }: LoginCardProps) {
                 autoComplete="new-password"
                 aria-describedby={["activation-password-hint", errorId].filter(Boolean).join(" ")}
               />
-              <p id="activation-password-hint" className="text-xs text-gray-600">
+              <p id="activation-password-hint" className="text-sm text-ink-600">
                 Mínimo 8 caracteres, con letras y números. No use su carnet.
               </p>
             </div>
@@ -250,7 +250,7 @@ export function LoginCard({ onLoginSuccess }: LoginCardProps) {
             </Button>
           </form>
         ) : (
-          <form onSubmit={handleLogin} className="mt-3.5 space-y-3" noValidate>
+          <form onSubmit={handleLogin} className="mt-5 space-y-4" noValidate>
             {step === "LOGIN" ? (
               <>
                 <div className="space-y-1">
@@ -277,12 +277,12 @@ export function LoginCard({ onLoginSuccess }: LoginCardProps) {
                 </div>
               </>
             ) : (
-              <div className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 space-y-2">
-                <p className="text-sm font-bold text-amber-900 flex items-center gap-1.5">
-                  <ShieldCheck className="h-4 w-4 shrink-0 text-amber-800" strokeWidth={2} aria-hidden />
+              <div className="rounded-md border border-warn-200 bg-warn-50 p-4 space-y-2">
+                <p className="text-sm font-bold text-warn-900 flex items-center gap-1.5">
+                  <ShieldCheck className="h-4 w-4 shrink-0 text-warn-700" strokeWidth={2} aria-hidden />
                   <span>Verificación en dos pasos</span>
                 </p>
-                <Label htmlFor="login-totp" className="text-sm font-normal text-amber-900 leading-snug">
+                <Label htmlFor="login-totp" className="text-sm font-normal text-warn-900 leading-snug">
                   Escriba el código de 6 dígitos que muestra su aplicación de verificación.
                 </Label>
                 <Input
@@ -294,16 +294,16 @@ export function LoginCard({ onLoginSuccess }: LoginCardProps) {
                   onChange={(e) => setTotpToken(e.target.value.replace(/\D/g, ""))}
                   autoFocus
                   aria-describedby={errorId}
-                  className="text-center text-lg font-mono font-bold tracking-[0.3em] border-amber-300"
+                  className="text-center text-lg font-mono font-bold"
                 />
                 {devTotp && (
-                  <p className="text-xs text-amber-900">
+                  <p className="text-sm text-warn-900">
                     Desarrollo local · código de prueba: <span className="font-mono font-bold">{devTotp}</span>
                   </p>
                 )}
                 <Button
                   variant="ghost"
-                  className="underline text-amber-900"
+                  className="underline text-warn-900"
                   onClick={() => {
                     setTotpToken("");
                     goTo("LOGIN");
@@ -319,7 +319,7 @@ export function LoginCard({ onLoginSuccess }: LoginCardProps) {
             {step === "LOGIN" && (
               <Button
                 variant="ghost"
-                className="w-full underline text-cujae-green-700"
+                className="w-full underline text-action"
                 onClick={() => {
                   setSuccessMessage(null);
                   goTo("ACTIVATE");
@@ -337,7 +337,7 @@ export function LoginCard({ onLoginSuccess }: LoginCardProps) {
 
 function SubmitButton({ loading, label }: { loading: boolean; label: string }) {
   return (
-    <Button type="submit" disabled={loading} className="w-full rounded-xl shadow-md" aria-busy={loading}>
+    <Button type="submit" disabled={loading} className="w-full" aria-busy={loading}>
       {loading ? (
         <>
           <span
@@ -347,10 +347,7 @@ function SubmitButton({ loading, label }: { loading: boolean; label: string }) {
           <span>Verificando...</span>
         </>
       ) : (
-        <>
-          <span>{label}</span>
-          <ArrowRight className="h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
-        </>
+        <span>{label}</span>
       )}
     </Button>
   );

@@ -5,7 +5,36 @@
  * Contraste AA obligatorio en texto sobre fondo (docs/migracion-web/09 §2.1).
  * Tokens en OKLCH para mantener la luminancia estable al ajustar el matiz.
  */
+/*
+ * Dirección visual "papeleta impresa" (F7): papel, tinta, verde CUJAE para la
+ * acción, carmesí solo para FEU y ámbar para avisos. Usar SIEMPRE estos tokens
+ * semánticos en componentes nuevos; los de marca quedan para casos puntuales.
+ */
 @theme {
+  --font-sans: var(--font-public-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-serif: var(--font-source-serif), ui-serif, Georgia, serif;
+
+  --color-paper: #FBFAF6;
+  --color-paper-200: #F1EEE6;
+  --color-line: #D9D5CA;
+  --color-line-strong: #A8A396;
+  --color-ink-500: #6B6F68;
+  --color-ink-600: #545852;
+  --color-ink-700: #3D413C;
+  --color-ink-800: #2A2E2A;
+  --color-ink-900: #1D2421;
+  --color-action: #136D54;
+  --color-action-hover: #0C4B39;
+  --color-action-50: #EDF7F4;
+  --color-warn-50: #FDF6E7;
+  --color-warn-200: #F2DDA8;
+  --color-warn-700: #8A5A0B;
+  --color-warn-900: #5A3A06;
+  --color-danger-50: #FDF0F0;
+  --color-danger-200: #F3C5C5;
+  --color-danger-700: #A61B1B;
+  --color-danger-900: #6E1111;
+
   --color-feu-green-50: oklch(97% 0.02 150);
   --color-feu-green-100: oklch(93% 0.05 150);
   --color-feu-green-200: oklch(87% 0.09 150);
@@ -44,13 +73,14 @@
 }
 
 body {
-  background-color: var(--color-feu-green-50);
-  color: var(--color-feu-green-900);
+  background-color: var(--color-paper);
+  color: var(--color-ink-900);
+  font-family: var(--font-sans);
 }
 
 /* Foco siempre visible al navegar con teclado (WCAG 2.4.7). */
 :focus-visible {
-  outline: 3px solid var(--color-cujae-green-500);
+  outline: 3px solid var(--color-action);
   outline-offset: 2px;
 }
 

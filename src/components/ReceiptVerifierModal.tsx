@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { AlertTriangle, CheckCircle2, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Alert } from "@/components/ui/alert";
 import {
   Dialog,
   DialogClose,
@@ -61,35 +62,35 @@ export function ReceiptVerifierModal({ receiptHash, onClose }: ReceiptVerifierMo
 
         <div className="my-4 space-y-3" aria-live="polite">
           {loading && (
-            <div role="status" className="py-6 text-center text-sm text-gray-700">
-              <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-solid border-cujae-green-500 border-r-transparent" />
+            <div role="status" className="py-6 text-center text-sm text-ink-700">
+              <div className="inline-block h-6 w-6 animate-spin rounded-full border-2 border-solid border-action border-r-transparent" />
               <p className="mt-2 text-sm">Buscando el comprobante en la urna...</p>
             </div>
           )}
 
           {error && (
-            <div role="alert" className="rounded-xl bg-red-50 p-4 text-sm font-medium text-red-800 flex items-start gap-2">
-              <AlertTriangle className="h-4 w-4 text-red-600 shrink-0 mt-0.5" strokeWidth={2} aria-hidden />
+            <Alert tone="danger" role="alert" className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
               <span>{error}</span>
-            </div>
+            </Alert>
           )}
 
           {found && (
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm font-medium text-emerald-900 flex items-start gap-2">
-              <CheckCircle2 className="h-4 w-4 text-emerald-700 shrink-0 mt-0.5" strokeWidth={2} aria-hidden />
+            <Alert tone="success" className="flex items-start gap-2 font-semibold">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" strokeWidth={2} aria-hidden />
               <span>Su boleta está en la urna y se contará en el escrutinio.</span>
-            </div>
+            </Alert>
           )}
 
-          <p className="font-mono text-xs break-all text-gray-600">{receiptHash}</p>
+          <p className="break-all font-mono text-sm text-ink-600">{receiptHash}</p>
 
-          <div className="rounded-lg bg-gray-50 p-3 text-xs text-gray-700 border border-gray-100 leading-relaxed flex items-start gap-1.5">
-            <Lock className="h-3.5 w-3.5 text-gray-500 shrink-0 mt-0.5" strokeWidth={2} aria-hidden />
+          <p className="flex items-start gap-2 border-t border-line pt-3 text-sm leading-relaxed text-ink-700">
+            <Lock className="mt-0.5 h-4 w-4 shrink-0 text-ink-500" strokeWidth={2} aria-hidden />
             <span>
               El comprobante solo confirma que su boleta está en la urna. No muestra por quién votó, para que nadie
               pueda obligarle a demostrarlo.
             </span>
-          </div>
+          </p>
         </div>
 
         <DialogFooter>

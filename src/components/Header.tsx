@@ -1,18 +1,17 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { BookOpen, Vote, BarChart3, Eye, Landmark, LogOut, type LucideIcon } from "lucide-react";
 import type { SessionUser } from "@/lib/session-user";
 import { RESULTS_PUBLIC_STATUSES } from "@/domain/states";
 import type { ProcessStatus } from "@/domain/types";
+import { ROUTES, type RouteKey } from "@/lib/routes";
 import { STATUS_COLORS, statusLabel } from "@/lib/status-labels";
 import { cn } from "@/lib/utils";
 
-export type ActiveTab = "VOTACION" | "ADMIN" | "RESULTADOS" | "REGLAMENTO" | "OBSERVADOR";
-
 interface HeaderProps {
-  activeTab: ActiveTab;
-  onTabChange: (tab: ActiveTab) => void;
   status: string;
   totalVotes: number;
   totalEligible: number;
@@ -20,159 +19,99 @@ interface HeaderProps {
   onLogout: () => void;
 }
 
-interface NavItem {
-  id: ActiveTab;
-  label: string;
-  icon: LucideIcon;
-}
-
-const ROLE_STYLES: Record<string, { label: string; badge: string }> = {
-  ADMIN: { label: "Administración", badge: "bg-purple-100 text-purple-900 border-purple-200" },
-  COMMISSION: { label: "Comisión", badge: "bg-sky-100 text-sky-900 border-sky-200" },
-  VOTER: { label: "Elector", badge: "bg-cujae-green-50 text-cujae-green-700 border-cujae-green-100" },
-  OBSERVER: { label: "Observador", badge: "bg-amber-100 text-amber-900 border-amber-300" },
+const ICONS: Record<RouteKey, LucideIcon> = {
+  votar: Vote,
+  comision: Landmark,
+  resultados: BarChart3,
+  observacion: Eye,
+  reglamento: BookOpen,
 };
 
-/** Pestañas autorizadas según el rol: no se muestra lo que el usuario no puede hacer. */
-function navItemsFor(role: SessionUser["role"], status: string): NavItem[] {
-  if (role === "VOTER") {
-    const items: NavItem[] = [
-      { id: "VOTACION", label: "Mi Boleta", icon: Vote },
-      { id: "REGLAMENTO", label: "Reglamento", icon: BookOpen },
-    ];
-    if (RESULTS_PUBLIC_STATUSES.includes(status as ProcessStatus) || status === "SIN_QUORUM") {
-      items.push({ id: "RESULTADOS", label: "Escrutinio", icon: BarChart3 });
-    }
-    return items;
-  }
-  if (role === "OBSERVER") {
-    const items: NavItem[] = [
-      { id: "OBSERVADOR", label: "Observación", icon: Eye },
-      { id: "REGLAMENTO", label: "Reglamento", icon: BookOpen },
-    ];
-    if (status !== "ABIERTA" && status !== "CONVOCADO") {
-      items.push({ id: "RESULTADOS", label: "Escrutinio", icon: BarChart3 });
-    }
-    items.push({ id: "VOTACION", label: "Mi Boleta", icon: Vote });
-    return items;
-  }
-  return [
-    { id: "ADMIN", label: "Administración", icon: Landmark },
-    { id: "RESULTADOS", label: "Escrutinio", icon: BarChart3 },
-    { id: "OBSERVADOR", label: "Observación", icon: Eye },
-    { id: "REGLAMENTO", label: "Reglamento", icon: BookOpen },
-    { id: "VOTACION", label: "Mi Boleta", icon: Vote },
-  ];
-}
+const ROLE_LABELS: Record<string, string> = {
+  ADMIN: "Administración",
+  COMMISSION: "Comisión",
+  OBSERVER: "Observador",
+  VOTER: "Elector",
+};
 
-export function Header({ activeTab, onTabChange, status, totalVotes, totalEligible, currentUser, onLogout }: HeaderProps) {
-  const navItems = navItemsFor(currentUser.role, status);
-  const showTurnout = currentUser.role !== "VOTER";
-  const roleStyle = ROLE_STYLES[currentUser.role];
-  const displayName = currentUser.name || currentUser.ci;
+/** Cabecera con navegación por rol (enlaces reales del App Router). */
+export function Header({ status, totalVotes, totalEligible, currentUser, onLogout }: HeaderProps) {
+  const pathname = usePathname();
+  const role = currentUser.role;
+  const resultsPublic = RESULTS_PUBLIC_STATUSES.includes(status as ProcessStatus) || status === "SIN_QUORUM";
+
+  const items = (Object.keys(ROUTES) as RouteKey[]).filter((key) => {
+    if (!ROUTES[key].roles.includes(role)) return false;
+    if (key === "resultados" && role === "VOTER" && !resultsPublic) return false;
+    return true;
+  });
+  const showTurnout = role !== "VOTER";
 
   return (
-    <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/95 shadow-xs backdrop-blur-md">
-      <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 xl:flex-row xl:items-center xl:justify-between">
-        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
-          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
-            <div className="relative h-10 w-10 shrink-0 sm:h-12 sm:w-12">
-              <Image src="/logos/cujae_rgba.png" alt="Logo CUJAE" fill sizes="48px" className="object-contain" priority />
-            </div>
-            <div className="relative h-10 w-10 shrink-0 sm:h-12 sm:w-12">
-              <Image src="/logos/feu_512.png" alt="Logo FEU" fill sizes="48px" className="object-contain" priority />
-            </div>
-            <div className="relative h-10 w-10 shrink-0 sm:h-12 sm:w-12">
-              <Image
-                src="/logos/informatica_512.png"
-                alt="Logo Facultad de Ingeniería Informática"
-                fill
-                sizes="48px"
-                className="object-contain"
-                priority
-              />
-            </div>
+    <header className="border-b border-line bg-white">
+      <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="flex shrink-0 items-center gap-1.5">
+            <Image src="/logos/cujae_rgba.png" alt="CUJAE" width={28} height={28} />
+            <Image src="/logos/feu_512.png" alt="FEU" width={28} height={28} />
+            <Image src="/logos/informatica_512.png" alt="Facultad de Ingeniería Informática" width={28} height={28} />
           </div>
-
-          <div className="hidden h-8 w-px bg-gray-200 sm:block" />
-
           <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="truncate text-sm font-bold tracking-tight text-gray-900 sm:text-lg">
-                Facultad de Ingeniería Informática
-              </h1>
-              <span
-                className={cn(
-                  "shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold",
-                  STATUS_COLORS[status] ?? "bg-gray-700 text-white",
-                )}
-              >
-                {statusLabel(status)}
+            <p className="text-sm font-bold leading-tight text-ink-900 sm:text-base">Facultad de Ingeniería Informática</p>
+            <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-ink-600">
+              <span>
+                Elección del Secretariado de la <span className="font-bold text-feu-carmesi-500">FEU</span>
               </span>
-            </div>
-            <p className="truncate text-xs text-gray-700 sm:text-sm">
-              Elección del Secretariado
-              {showTurnout && (
-                <>
-                  {" "}
-                  · Han votado <strong className="text-gray-900">{totalVotes} de {totalEligible}</strong> electores
-                </>
+              {status && (
+                <span className={cn("rounded-full px-2 py-0.5 text-xs font-bold", STATUS_COLORS[status] ?? "bg-paper-200 text-ink-800")}>
+                  {statusLabel(status)}
+                </span>
+              )}
+              {showTurnout && totalEligible > 0 && (
+                <span>
+                  Han votado {totalVotes} de {totalEligible}
+                </span>
               )}
             </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center justify-between gap-2 xl:justify-end">
-          <nav aria-label="Secciones" className="min-w-0">
-            <ul className="flex flex-wrap items-center gap-1">
-              {navItems.map((item) => {
-                const active = activeTab === item.id;
-                return (
-                  <li key={item.id}>
-                    <button
-                      type="button"
-                      onClick={() => onTabChange(item.id)}
-                      aria-current={active ? "page" : undefined}
-                      className={cn(
-                        "flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-colors",
-                        active ? "bg-cujae-green-500 text-white shadow-xs" : "bg-gray-100 text-gray-800 hover:bg-gray-200",
-                      )}
-                    >
-                      <item.icon className="h-4 w-4 shrink-0" strokeWidth={1.8} aria-hidden="true" />
-                      <span>{item.label}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <nav aria-label="Secciones" className="flex min-w-0 flex-wrap gap-1">
+            {items.map((key) => {
+              const Icon = ICONS[key];
+              const active = pathname === ROUTES[key].href;
+              return (
+                <Link
+                  key={key}
+                  href={ROUTES[key].href}
+                  aria-current={active ? "page" : undefined}
+                  className={cn(
+                    "inline-flex min-h-11 items-center gap-1.5 rounded-md border-b-2 px-3 text-sm font-semibold",
+                    active
+                      ? "border-action bg-action-50 text-action"
+                      : "border-transparent text-ink-700 hover:bg-paper-200 hover:text-ink-900",
+                  )}
+                >
+                  <Icon className="h-4 w-4" strokeWidth={2} aria-hidden />
+                  {ROUTES[key].label}
+                </Link>
+              );
+            })}
           </nav>
-
-          <div className="flex min-w-0 shrink-0 items-center gap-1.5 border-l border-gray-200 pl-2">
-            <div
-              className="flex min-w-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs"
-              title={`Sesión iniciada como ${displayName}`}
-            >
-              <span className="h-2 w-2 shrink-0 rounded-full bg-cujae-green-500" aria-hidden="true" />
-              <span className="max-w-[130px] truncate font-semibold text-gray-900">{displayName}</span>
-              <span
-                className={cn(
-                  "rounded border px-1.5 py-0.5 text-xs font-bold",
-                  roleStyle?.badge ?? "border-gray-200 bg-gray-100 text-gray-800",
-                )}
-              >
-                {roleStyle?.label ?? "Usuario"}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={onLogout}
-              className="inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-lg border border-transparent text-gray-700 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-800"
-              title="Cerrar sesión"
-              aria-label="Cerrar sesión"
-            >
-              <LogOut className="h-5 w-5" strokeWidth={1.8} aria-hidden="true" />
-            </button>
-          </div>
+          <span className="inline-flex min-h-11 min-w-0 items-center gap-2 border-l border-line pl-3 text-sm text-ink-800">
+            <span className="truncate">{currentUser.name}</span>
+            <span className="shrink-0 text-xs font-semibold text-ink-600">{ROLE_LABELS[role] ?? role}</span>
+          </span>
+          <button
+            type="button"
+            onClick={onLogout}
+            aria-label="Cerrar sesión"
+            title="Cerrar sesión"
+            className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-md border border-line text-ink-700 hover:bg-paper-200"
+          >
+            <LogOut className="h-5 w-5" strokeWidth={2} aria-hidden />
+          </button>
         </div>
       </div>
     </header>

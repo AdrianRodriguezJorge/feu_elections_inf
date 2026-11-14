@@ -9,10 +9,10 @@ export const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: "bg-cujae-green-500 text-white hover:bg-cujae-green-700",
-        secondary: "border border-gray-300 bg-white text-gray-800 hover:bg-gray-50",
-        danger: "bg-red-700 text-white hover:bg-red-800",
-        ghost: "text-gray-700 hover:bg-gray-100",
+        primary: "bg-action text-white hover:bg-action-hover",
+        secondary: "border border-line-strong bg-white text-ink-800 hover:bg-paper-200",
+        danger: "bg-danger-700 text-white hover:bg-danger-900",
+        ghost: "text-ink-700 hover:bg-paper-200",
       },
     },
     defaultVariants: { variant: "primary" },

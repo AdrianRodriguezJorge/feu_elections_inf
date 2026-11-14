@@ -1,249 +1,197 @@
 # HANDOUT DE CONTINUIDAD — ELECCIONES FEU
-## Facultad de Ingeniería Informática · Universidad Tecnológica de La Habana «José Antonio Echeverría» (CUJAE)
+## Facultad de Ingeniería Informática · CUJAE
+
+> Última actualización: 14-11-2026, al cerrar la fase F7. Este documento es la fuente de verdad operativa. Si algo del código lo contradice, manda el código; corrija este documento.
 
 ---
 
-## 1. Resumen Ejecutivo y Propósito del Sistema
+## 1. Qué es y en qué estado está
 
-El presente proyecto es una plataforma web full-stack diseñada y construida para gestionar, ejecutar y auditar de forma digital y segura la elección del **Secretariado de la Facultad de Ingeniería Informática** de la Federación Estudiantil Universitaria (FEU) en la CUJAE, dando estricto cumplimiento al Reglamento General de la FEU de 2019 (*ABC de la FEU 2019*, `ABC-FEU-2019.pdf`).
+Plataforma web para la elección del **Secretariado de la Facultad de Ingeniería Informática** de la FEU (CUJAE), conforme al Reglamento General de la FEU 2019 (*ABC de la FEU*; extractos literales en `prisma/regulation.seed.json`, documentos en `docs/migracion-web/`).
 
-### 1.1. Alcance Operativo v1
-- **Ámbito estricto de aplicación:** Nivel **Facultad** (Facultad de Ingeniería Informática).
-- **Extensibilidad multi-nivel:** El modelo de base de datos contempla estructuras jerárquicas superiores e inferiores (brigada, filial, residencia, sede, centro y nacional), pero su interfaz y flujos operativos **no se implementan en v1** y quedan documentados como ampliación futura.
-- **Repositorio oficial:** [GitHub: AdrianRodriguezJorge/feu_elections_inf](https://github.com/AdrianRodriguezJorge/feu_elections_inf) (rama `main`).
-- **Despliegue activo:** Vercel (conectado a base de datos PostgreSQL mediante Prisma ORM con triggers nativos WORM).
-- **Pipeline CI/CD:** Sincronización automática de esquema con `prisma db push` y sembrado automático condicional desatendido (`node scripts/auto-migrate.mjs`).
+- **Alcance v1:** solo nivel Facultad. El modelo de datos admite otros niveles, pero no tienen interfaz.
+- **Repositorio:** https://github.com/AdrianRodriguezJorge/feu_elections_inf (rama `main`).
+- **Producción:** Vercel + Prisma Postgres (`db.prisma.io`). **Todavía en pruebas: no hay usuarios reales.**
+- **Informe de auditoría de partida:** `auditoria/informe-auditoria-2026-11-13.md` (hallazgos con severidad, archivo y línea). Las fases F1–F7 corrigen la mayor parte; ver §9.
+
+### Fases del plan de corrección
+
+| Fase | Contenido | Estado | Commit |
+|---|---|---|---|
+| F0 | Contención en producción (la hace el usuario) | Pendiente del usuario, ver §8 | — |
+| F1 | Seguridad: Auth.js, autorización por rol, secreto del voto | Hecha | `9c44919` |
+| F2 | BD como única fuente de verdad, máquina de estados, escrutinio, empates, quórum | Hecha | `4068276` |
+| F3 | Migraciones versionadas, seed limpio, WORM ampliado | Hecha en código; falta reiniciar la BD de producción | `8f833d4` |
+| F4 | Tests de integración y e2e en GitHub Actions | Hecha | `827e6ed` |
+| F5 | UX funcional, accesibilidad WCAG 2.1 AA, textos en usted | Hecha | `a1b5c1d`, `b3f4030` |
+| F7 | Rutas por rol, sistema de diseño "papeleta impresa", componentes partidos | Hecha | ver `git log` |
+| **F6** | **CRUDs operativos** (padrón, candidatos, brigadas, comisión, visor de auditoría) | **Pendiente (siguiente)** | — |
+| F8 | Pruebas de carga, Docker/runbook, simulacro UAT | Pendiente | — |
+
+El usuario cambió el orden: F7 se hizo antes que F6 para construir los CRUDs sobre las rutas y componentes nuevos.
 
 ---
 
-## 2. Contexto del Negocio y Ciclo de Vida Electoral
+## 2. Stack, arranque local y estructura
 
-El proceso electoral digitalizado reproduce con exactitud las etapas institucionales establecidas por el marco regulatorio de la FEU:
+**Stack:** Next.js 15 (App Router, `typedRoutes`), React 19, Tailwind 4, TypeScript estricto, Prisma 6.19 sobre PostgreSQL 16, Auth.js v5 (`next-auth@5.0.0-beta.32`), Zod, shadcn/ui sobre Radix (a mano, en `src/components/ui/`), Vitest, Playwright. Node 24.x (`engines`).
 
-```mermaid
-flowchart TD
-    A["CONVOCADO<br/>(Proceso creado, candidaturas congeladas, comisión constituida)"] -->|"▶ Abrir Votación<br/>(Acción formal Comisión/Admin)"| B["ABIERTA<br/>(Electores emiten su voto secreto e individual)"]
-    B -->|"⏹ Cerrar Votación<br/>(Conclusión de la jornada electoral)"| C["CERRADA<br/>(Urnas precintadas, sin recepción de nuevos votos)"]
-    C -->|"⚙ Ejecutar Escrutinio<br/>(Cálculo determinista e idempotente)"| D{"Verificación de Participación<br/>(¿Turnout > 85 %? Art. 38)"}
-    D -- "No (≤ 85 %)" --> E["NO VÁLIDA / REPETICIÓN<br/>(Proceso nulo por falta de participación)"|
-    D -- "Sí (> 85 %)" --> F{"Verificación de Empates<br/>(¿Empate en corte o presidencia?)"}
-    F -- "Persiste tras votos presidente" --> G["RUNOFF<br/>(Segunda Vuelta como proceso hijo, Art. 40)"]
-    F -- "Sin empates en corte" --> H["ESCRUTADO / PROCLAMADO<br/>(N miembros electos y Presidente electo)"]
-    H --> I["Designación de Vicepresidente<br/>(Por la Comisión entre los electos, Art. 67)"]
-    I --> J["Emisión de Acta Oficial<br/>(PDF descargable con firmas y hash SHA-256)"]
-    J --> K["Gestión Post-electoral de Vacantes<br/>(Sucesión inmutable en caso de renuncia, Arts. 99-102)"]
+**Arranque local** (PostgreSQL instalado como servicio; **el usuario no quiere Docker**):
+
+```bash
+npm install
+cp .env.example .env     # DATABASE_URL, AUTH_SECRET
+npm run db:deploy        # migraciones (esquema + triggers WORM + CHECK)
+npm run db:seed          # estado inicial (se niega si hay boletas)
+npm run dev
 ```
 
-### 2.1. Estados del Proceso Electoral
-1. **`CONVOCADO` (Estado Inicial Obligatorio):**
-   - El proceso se crea con la membresía (listado de electores) y las candidaturas oficiales congeladas mediante un snapshot inmutable hasheado con SHA-256.
-   - La Comisión Electoral queda formalmente constituida (Art. 47).
-   - **Regla estricta:** La votación **nunca arranca abierta automáticamente**. Los electores autenticados ven una pantalla institucional de espera informando que el proceso está convocado y aún no ha comenzado la recepción de boletas.
-2. **`ABIERTA`:**
-   - Habilitada exclusivamente mediante la acción explícita `"▶ Abrir Votación"` ejecutada por un miembro de la Comisión Electoral o el Administrador.
-   - Los electores registrados y habilitados acceden a su boleta oficial y emiten su voto.
-3. **`CERRADA`:**
-   - La Comisión Electoral cierra la recepción de boletas al cumplirse el horario de la votación o al registrarse la participación unánime de los electores.
-   - Las urnas quedan bloqueadas; ningún elector puede emitir votos adicionales.
-4. **`ESCRUTADO`:**
-   - La Comisión ejecuta el algoritmo de cómputo oficial.
-   - Se valida el quórum de participación estricto (`> 85 %`).
-   - Se determina la lista de los $N$ miembros electos y se proclama al Presidente.
-   - Se genera el hash criptográfico del escrutinio y se habilita la descarga del Acta Oficial en PDF.
-5. **`RUNOFF` (Segunda Vuelta):**
-   - Si persiste un empate en el puesto $N$ o en la presidencia tras aplicar la regla de desempate por votos directos de presidente, se convoca a una segunda vuelta con los candidatos empatados como proceso hijo vinculado.
+**Variables de entorno:** `DATABASE_URL`, `AUTH_SECRET` (obligatoria en producción), `AUTH_MFA_ENABLED` (opcional, ver §6).
+
+**Estructura:**
+
+```
+app/                     Rutas (App Router)
+  page.tsx               "/" → login, o redirige a la página del rol
+  (app)/                 Área autenticada: layout con sesión + proveedor de datos
+    votar/ comision/ resultados/ observacion/
+  reglamento/ verificar/ Públicas (con sesión, el reglamento se ve dentro del shell)
+  api/                   Route handlers (todos con requireSession/requirePermission)
+src/domain/              Dominio puro y testeado (sin BD ni Next)
+src/server/              election-service (transacciones), accounts, guard, page-guard, acta
+src/components/          UI; ballot/, comision/, results/ son piezas de los paneles grandes
+src/components/ui/       Button, Input, Label, Dialog, Confirm, Card, Badge, Alert
+src/views/               Vistas cliente de cada ruta y pantallas de login/públicas
+src/lib/                 routes, status-labels, utils, session-user
+prisma/                  schema, migrations/, seed.ts, regulation.seed.json
+tests/                   unitarias (tests/*.test.ts), integration/, e2e/
+auditoria/               Informe de auditoría y SQL de contención (f0-contencion.sql)
+```
 
 ---
 
-## 3. Restricciones Establecidas por la Ley (Reglamento General FEU 2019)
+## 3. Ciclo de vida y reglas de negocio (implementadas)
 
-El sistema implementa y valida de forma pura en código las normas del *ABC de la FEU (2019)*:
+Estados usados en v1 (`src/domain/states.ts`): `CONVOCADO → ABIERTA → CERRADA → {SIN_QUORUM | EMPATE | PROCLAMADA} → VP_DESIGNADA → FINALIZADA`, más `VACANTE`. No existen BORRADOR, LISTO, IMPUGNADA, ANULADA ni SEGUNDA_VUELTA. No se reabre una votación cerrada y no hay reinicio de urnas.
 
-| Artículo | Regla Estatutaria | Implementación Técnica en la Plataforma |
+- **Abrir/cerrar/escrutar/proclamar/VP/vacantes:** los operan **Comisión y Administrador**. El Administrador, además, es el único que ajusta el quórum.
+- **Escrutinio:** una sola vez, desde `CERRADA`. El resultado decide el estado de salida: sin quórum → `SIN_QUORUM` (no se proclama, terminal); empate → `EMPATE`; si no → `PROCLAMADA`.
+- **N = candidatos − 2** (Art. 59), derivado, nunca editable. Boleta: hasta N miembros y exactamente 1 presidente entre los marcados; no hay voto en blanco (0 marcas → anulación voluntaria en 2 pasos).
+- **Quórum:** más del **85 %** (Art. 38). El Administrador puede aplicar una excepción de **80–85 %** con motivo y acta, hasta antes del escrutinio; queda auditada y visible para todos.
+- **Empates** (decisión del usuario, se aparta del Art. 40 y se documenta): si los votos a presidente no resuelven el empate (en el corte o en la presidencia), **la Comisión decide entre los empatados con motivo y acta**, que quedan en la auditoría y en el acta. Un empate a 0 votos en el corte también es empate (antes se resolvía por orden alfabético: corregido).
+- **VP:** lo designa la Comisión entre los electos (Art. 67). **Vacante presidencial:** asume el VP o la Comisión elige (Arts. 99–102); los porcentajes del Consejo se introducen a mano.
+- **Padrón:** solo se importa en `CONVOCADO` (congelado al abrir).
+- **Auditoría:** cadena hash (SHA-256, JSON canónico) en `audit_events`, verificable en `GET /api/auditoria`.
+
+---
+
+## 4. Seguridad y secreto del voto (decisiones de arquitectura)
+
+- **Sesión:** Auth.js Credentials + JWT en cookie cifrada (8 h). Toda ruta API exige sesión y permiso (`src/server/guard.ts`); las páginas, rol en el servidor (`src/server/page-guard.ts`). La identidad del voto sale **solo de la sesión**.
+- **Cuentas:** nadie tiene contraseña al sembrar. Cada persona **activa su cuenta** con su carnet y elige su contraseña (no puede ser el carnet), solo con el proceso en `CONVOCADO`. Si ya estaba activada se avisa; la Comisión puede **restablecerla** (solo antes de abrir). Login por carnet o nombre completo exacto (nunca subcadena).
+- **Urna ciega (INV-04):** `ballots` no guarda identidad, hora exacta (solo el día), secuencia ni id ordenable; el evento de auditoría del voto es `ANONIMO` con detalles vacíos; el comprobante es `randomBytes(32)` y **solo confirma inclusión** (no muestra el contenido: sin *receipt-freeness* no hay voto secreto real).
+- **API sin fugas:** el votante recibe solo su ficha; roles de supervisión, la participación agregada por brigada; los carnets de candidatos solo los ven Comisión/Admin.
+- **WORM en la BD** (migración `0002_worm_triggers`): `ballots`, `ballot_selections`, `participations` y `audit_events` no admiten UPDATE/DELETE; TRUNCATE solo con la urna vacía. El seed se niega a ejecutarse si hay boletas. **Un solo usuario de BD** (decisión del usuario): quien tenga la cadena de conexión puede, en teoría, quitar los triggers.
+- **Fallar cerrado:** si la BD no responde, la API da 503; nunca datos de demostración.
+
+---
+
+## 5. Decisiones y directivas del usuario (no revertir sin preguntar)
+
+1. **Sin correo electrónico** en ninguna pantalla (`users.email` es opcional y no se usa).
+2. **Inicio estrictamente en `CONVOCADO`**; sin botón ni acción de reiniciar urnas.
+3. **Trato de usted** en todos los textos, sin jerga para votantes (nada de "SHA-256", "MFA TOTP", "urna ciega").
+4. **Cero emojis**; iconos `lucide-react`. Carmesí (`feu-carmesi-500`) **solo** para las letras "FEU".
+5. **Estética "papeleta impresa"** (F7): papel `#FBFAF6`, tinta oscura, verde CUJAE para acciones (`action`), ámbar para avisos, bordes finos, sin sombras, Public Sans (interfaz) y Source Serif (solo reglamento y acta). Tokens semánticos en `app/globals.css`; no usar paletas sueltas de Tailwind. **Sin modo oscuro** por ahora (tokens preparados).
+6. **Afluencia en vivo oculta a los electores** (la ven Comisión, Admin y observadores).
+7. **Pantalla de revisión** antes de confirmar el voto.
+8. Autoridades: Liz (Presidencia de la Comisión) y Revisor (miembro/revisor), leídas de la BD; nada de nombres inventados.
+9. **Flujo de trabajo:** un commit por fase directamente en `main` y push (sin ramas). Al cerrar cada fase: resumen + preguntar las decisiones abiertas de la siguiente **antes** de empezar.
+10. **Las pruebas no se ejecutan en el PC del usuario** sino en GitHub Actions (`.github/workflows/ci.yml`); en local solo la verificación rápida (§7).
+
+---
+
+## 6. Pendiente de decisión: TOTP
+
+El segundo factor para ADMIN y COMMISSION está **implementado pero desactivado** (se activa con `AUTH_MFA_ENABLED=true`): hay un secreto TOTP por autoridad en `users.mfa_secret`, pero falta el **enrolamiento** (mostrar un QR `otpauth://` para Google Authenticator/Aegis) y el usuario pidió dejar la decisión para el final porque no la entendía del todo. Hoy las autoridades entran solo con contraseña. En desarrollo local existe `GET /api/auth/totp/current?id=<nombre|carnet>` (404 fuera de `NODE_ENV=development`).
+
+---
+
+## 7. Datos del seed y pruebas
+
+`npm run db:seed` deja: Facultad, brigadas 11/12/22/32/41, **proceso en `CONVOCADO`**, 10 candidatos demo (también electores), 3 autoridades, comisión constituida, 321 artículos del reglamento y el evento génesis de auditoría. **Nadie tiene contraseña** (todos activan su cuenta). Carnets de prueba válidos:
+
+| Rol | Nombre | Carnet |
 |---|---|---|
-| **Art. 38** | **Participación mínima requerida (> 85 %):** En nivel Facultad se exige la participación de más del 85 % de la membresía habilitada para validar la elección. *(Nota: El umbral del 80 % aplica exclusivamente a la Universidad, no a la Facultad).* | `src/domain/quorum.ts` y `tally.ts`. Si la participación no supera estrictamente el 85.0 %, el escrutinio arroja `quorumMet: false` y prohíbe la proclamación de resultados. |
-| **Art. 40** | **Prohibición de desempates arbitrarios:** Queda terminantemente prohibido desempatar por orden alfabético, timestamp, ID o azar. | En caso de empate en el corte o en presidencia, se evalúan primero los votos a presidente recibidos. Si el empate continúa, el sistema genera el estado `RUNOFF` para celebrar segunda vuelta. |
-| **Art. 47** | **Comisión Electoral Constituida:** La Comisión Electoral de la Facultad vela por la transparencia y legalidad del proceso. | Modelada en base de datos (`prisma.commission` y `CommissionSeat`), vinculando dinámicamente a sus miembros y firmantes oficiales en las actas. |
-| **Art. 58** | **Voto Secreto:** El voto es directo y secreto cuando la estructura electoral cuenta con más de 100 electores. | Asumido por defecto en v1. Urna ciega desacoplada (`INV-04`). |
-| **Art. 59** | **Cálculo dinámico de escaños ($N = C - 2$):** La cantidad de miembros a elegir en el Secretariado es exactamente la cantidad de candidatos menos dos. Mínimo 5 candidatos ($N \ge 3$). | `src/domain/seats.ts`. El sistema **nunca hardcodea $N$** ni constantes fijas (ni 9, ni 11, ni 5). $N$ se deriva dinámicamente de la lista de candidatos cargada. |
-| **Art. 60** | **Estructura oficial de la boleta:** Boleta organizada en 4 columnas: Nombre, Brigada, Voto a Miembro y Voto a Presidente. | Componente `VoterBallot.tsx` con diseño responsive adaptativo en escritorio y tarjetas optimizadas para dispositivos móviles Android. |
-| **Art. 61** | **Límite de votos a miembros:** Cada elector puede votar por **hasta $N$ candidatos** a miembros del Secretariado. No hay voto en blanco. | Validación reactiva en cliente y servidor (`src/domain/ballot.ts`). Si el elector marca 0 candidatos, no se emite voto en blanco; se ofrece el flujo de anulación voluntaria en 2 pasos (`ANULADA_POR_ELECTOR`). |
-| **Art. 63** | **Elección del Presidente:** El voto a Presidente es obligatorio y debe seleccionarse **únicamente entre los candidatos que el elector marcó como miembros**. | El control radial de presidente está condicionado por checkbox de miembro. Si se desmarca a un miembro, se retira automáticamente la marca de presidencia. |
-| **Art. 66** | **Inmutabilidad y retención legal ($\ge 1$ año):** Toda la documentación y boletas deben conservarse íntegras durante al menos un año. | Triggers nativos PL/pgSQL WORM (`fn_prevent_ballot_mutation`, `fn_prevent_audit_mutation`) que abortan cualquier `UPDATE` o `DELETE` sobre las tablas `ballots` y `audit_events`. |
-| **Art. 67** | **Designación del Vicepresidente:** Se realiza con posterioridad al escrutinio por la Comisión Electoral de entre los $N$ miembros proclamados electos. | Endpoint `POST /api/comision/designar-vp` y panel administrativo. El sistema sugiere al siguiente candidato más votado, pero permite designar a cualquiera de los electos. |
-| **Arts. 99–102** | **Sucesión y Vacantes Presidenciales:** Ante renuncia o separación del presidente, asume el vicepresidente o la comisión designa a otro miembro electo. | `src/domain/vacancies.ts` y `/api/comision/vacante`. Genera una nueva versión inmutable de la composición del Secretariado. |
+| ADMIN | Adrian | 99091978927 |
+| COMMISSION (presidencia) | Liz | 06091668099 |
+| COMMISSION (miembro) | Revisor | 04021514560 |
+| VOTER / candidatos | Carlos Mendoza Ramos, Beatriz Navarro Pino, Daniel Gómez Herrera, Elena Castillo Vargas, Fernando Iglesias Morales, Gabriela Ortega Serrano, Héctor Paredes Fuentes, Isabel Romero Cruz, Javier Soto Delgado, Katia Molina Reyes | ver `prisma/seed.ts` |
 
-### 3.1. Invariantes del Sistema (`INV-01` a `INV-18`)
-- **`INV-01`:** Prohibido el voto en blanco. Cero marcas requiere confirmación explícita de anulación (`ANULADA_POR_ELECTOR`).
-- **`INV-02`:** Las boletas anuladas cuentan para la participación requerida (`> 85 %`) y el total de boletas emitidas, pero aportan cero votos a los candidatos. Las abstenciones no cuentan para participación ni votos.
-- **`INV-04` (Urna Ciega):** La tabla `participations` almacena exclusivamente que el usuario ha participado para evitar el doble voto. La tabla `ballots` contiene el voto emitido y su comprobante criptográfico (`receipt_hash`), sin almacenar jamás `user_id` ni `membership_id`.
-- **`INV-07`:** Unicidad del voto garantizada por restricción `@@unique([processId, membershipId])`.
-- **`INV-17`:** Inmutabilidad de la candidatura mediante hash SHA-256 sobre el snapshot normalizado en orden alfabético determinista.
+**Pruebas:**
+- `npm test` — 103 unitarias del dominio (vitest).
+- `npm run test:integration` — API contra servidor y BD desechable (exige `ALLOW_DB_RESET=true` y `APP_URL`; **nunca contra producción**; usa `APP_URL`, no `BASE_URL`, porque Vite reserva esta última).
+- `npm run test:e2e` — Playwright (activación, voto con revisión, anulación en móvil, escrutinio sin quórum, rutas por rol, axe WCAG en las pantallas clave).
+- **CI:** tipos, lint, unitarias, migraciones + seed en PostgreSQL 16, build, integración y e2e en cada push. Informe y capturas como artefacto `informe-e2e`.
+
+**Entorno del desarrollador:** PostgreSQL 16 como servicio de Windows (`C:\Program Files\PostgreSQL\16\bin`, `psql` fuera del PATH); la BD `feu` es del usuario, **no escribir en ella** (los triggers WORM impiden borrar votos); las pruebas manuales usan una BD aparte (`feu_audit`). Prisma bloquea `migrate reset` si lo lanza un agente de IA: en los tests la BD se reinicia borrando el esquema y aplicando `migrate deploy` + seed.
 
 ---
 
-## 4. Restricciones Establecidas por el Usuario (Directivas de Producto y UX)
+## 8. Pendiente del usuario en producción (Vercel)
 
-Durante el diseño e implementación del sistema se establecieron pautas operativas y visuales no negociables:
+Hasta hacerlo, **los builds de Vercel fallan** con `P3005 The database schema is not empty` (la BD de producción se creó con `db push`, sin historial de migraciones). Orden:
 
-1. **Autenticación sin correo electrónico:**
-   - Los electores inician sesión únicamente con su **Nombre registrado** (búsqueda flexible por nombre o apellidos) y su **Carnet de Identidad** (11 dígitos numéricos) como contraseña provisional.
-   - En ninguna pantalla de login, validación o activación se solicita, muestra ni exige correo electrónico.
-2. **Segundo factor MFA TOTP obligatorio para autoridades:**
-   - Las cuentas con rol `ADMIN` y `COMMISSION` tienen MFA TOTP obligatorio.
-   - Para agilizar pruebas y auditorías, el sistema incluye el endpoint `/api/auth/totp/current` que entrega el código OTP activo bajo clave compartida en entornos de prueba.
-3. **Inicio strictly en `CONVOCADO`:**
-   - La base de datos y los seeds inicializan el proceso en estado `CONVOCADO`.
-   - Queda prohibido que el sistema inicie en `ABIERTA` de forma desatendida.
-4. **Prohibición de botones destructivos:**
-   - Se eliminó completamente de la interfaz el botón *"Reiniciar Urnas"*. Una vez abierta la votación o emitidas las boletas, la base de datos y la UI no permiten reseteos casuales o borrado de votos.
-5. **Autoridades Electorales Reales y Dinámicas:**
-   - En el panel de administración, el visor de la Comisión Electoral (Art. 47) y las firmas del Acta Oficial en PDF, las autoridades mostradas son leídas dinámicamente desde la base de datos (`Liz` como Presidente de la Comisión y `Revisor` como 2do Miembro/Revisor), habiéndose erradicado cualquier nombre mockeado estático (`Elena`, `Frank`, `Giselle`).
-6. **Higiene Institucional y Principio «No mostrar al usuario lo que no puede hacer»:**
-   - **Cero emojis:** Todos los emojis visuales fueron erradicados y reemplazados por iconos formales SVG de la biblioteca `lucide-react`.
-   - **Identidad cromática:** Paleta institucional basada en el color ámbar/dorado de la Facultad de Ingeniería Informática (`amber-100/80`, `border-amber-300`, `text-amber-900`) con contraste accesible WCAG AA, reservando el color rojo carmesí (`#8F1639`) exclusivamente para las siglas `FEU`.
-   - **Footer en una sola línea:** Frase de créditos institucionales compacta con badge estilizado.
-   - **Pantalla de login sin scroll:** Contenedor adaptado a `h-[100dvh]` que elimina el scroll vertical en navegadores de escritorio y móviles.
-   - **Eliminación de leyendas redundantes:** Se retiró el texto explicativo redundante *"Contraseña provisional: Carnet de Identidad"* del formulario de login.
-   - **Segregación estricta de vistas por rol:**
-     - Visitante anónimo: formulario de login, visor del reglamento y modal de verificación criptográfica de comprobantes.
-     - Votante (`VOTER`): boleta electoral (o pantalla de espera institucional si no está en `ABIERTA`) y reglamento.
-     - Observador (`OBSERVER`): panel de afluencia en tiempo real, verificación de urna ciega y visor de auditoría.
-     - Comisión / Administrador (`COMMISSION` / `ADMIN`): consola de apertura, cierre, escrutinio, designación de VP, vacantes y descarga del Acta Oficial.
+1. Añadir **`AUTH_SECRET`** en Vercel (Settings → Environment Variables, entornos Production y Preview). Generarlo con `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`. Sin ella el login falla.
+2. **Reiniciar la BD de producción** (borra todo; solo hay datos de prueba) desde el PC del usuario con la URL de producción, que el agente no maneja: `$env:DATABASE_URL="<url de producción>"; npx prisma migrate reset --force` (aplica migraciones y ejecuta el seed). Si falla en Prisma Postgres, revisar si exige conexión directa o si no admite triggers PL/pgSQL.
+3. **Redeploy** del último commit en Vercel.
+4. Probar: activar la cuenta de Adrian (carnet 99091978927), elegir contraseña y entrar.
+5. (F0) Revisar con `auditoria/f0-contencion.sql` si el código anterior creó cuentas privilegiadas en producción (con el reinicio del paso 2 desaparecen).
 
 ---
 
-## 5. Arquitectura Técnica y Estado del Desarrollo
+## 9. Lo que falta (roadmap)
 
-### 5.1. Fases Completadas (F0 a F7)
-- [x] **F0 · Cierre de decisiones y marco legal:** 34 reglas RGF analizadas, decisiones congeladas y matriz de trazabilidad legal.
-- [x] **F1 · Scaffold y dominio puro:** Next.js 15.5, React 19, Tailwind CSS 4, dominio desacoplado de frameworks (`seats.ts`, `ballot.ts`, `quorum.ts`, `tally.ts`, `states.ts`).
-- [x] **F2 · Membresía, validación CI y Comisión:** Validación matemática del Carnet de Identidad cubano (siglo XX y XXI, fecha real, dígito verificador, `ci.ts`), importación de listados (`padron.ts`), constitución de la comisión (`commission.ts`) y control de acceso (`permissions.ts`).
-- [x] **F3 · Candidaturas y configuración dinámica:** Snapshot de candidaturas con SHA-256 (`candidates.ts`), biografías en Markdown sanitizadas, configuración general sin constantes hardcodeadas (`config.ts`).
-- [x] **F4 · Boleta electoral y emisión:** Boleta oficial de 4 columnas, verificación de comprobante inmutable (`ReceiptVerifierModal`), urna ciega desacoplada (`INV-04`), anulación voluntaria en 2 pasos.
-- [x] **F5 · Escrutinio y proclamación:** Algoritmo determinista de escrutinio, validación de participación requerida `> 85 %`, desempates, designación de VP post-cierre y exportación CSV.
-- [x] **F6 · Módulo Reglamento, Vacantes, Observadores y PDF:**
-  - Módulo interactivo de Reglamento con citas literales y número de página (`ReglamentoViewer.tsx`, `/api/reglamento`).
-  - Panel de sucesión y vacantes presidenciales (`vacancies.ts`, `/api/comision/vacante`).
-  - Generador de Acta Oficial descargable en PDF profesional usando `jspdf` con sellos de las autoridades y hash SHA-256 (`src/utils/pdfActa.ts`).
-  - Panel de Observación electoral independiente (`ObserverPanel.tsx`).
-- [x] **F7 · Persistencia Relacional PostgreSQL, Triggers WORM y Seguridad:**
-  - Persistencia relacional ACID con Prisma ORM 6.19.3 sobre PostgreSQL 16.
-  - Blindaje WORM con triggers nativos PL/pgSQL que abortan cualquier intento de modificación o borrado de boletas o eventos de auditoría.
-  - Serialización canónica RFC 8785 en la cadena de bloques de auditoría para garantizar reproducibilidad matemática del hash SHA-256.
-  - Rate limiting con ventana deslizante (`rate-limiter.ts`) protegiendo login y emisión de votos (HTTP 429).
-  - Modal interactivo de autenticación (`AuthModal.tsx`) con soporte TOTP y credenciales por CI.
+### F6 · CRUDs operativos (siguiente)
+Hoy solo se pueden importar electores por CSV; no hay forma de corregir nada sin tocar el seed. Falta (ver matriz de CRUD del informe, §3):
+- **Padrón:** listar, buscar, editar, habilitar/inhabilitar (antes de abrir); vista previa de la importación (`POST /api/padron/validate` existe sin interfaz); plantilla CSV (`GET /api/padron/template`, sin interfaz).
+- **Candidatos:** alta, edición y baja antes de congelar la candidatura; recalcular N y el snapshot hasheado; biografías.
+- **Brigadas:** crear/editar (el plan dice que se crean antes de importar).
+- **Comisión Electoral:** constituir y modificar de forma persistida (`POST /api/comision` hoy valida pero no guarda).
+- **Visor de auditoría** para observadores (`GET /api/auditoria` existe sin interfaz).
+- **Gestión de usuarios/roles** y creación de procesos (hoy solo por seed).
+- Fijar el congelamiento: candidatos y padrón no editables al abrir.
 
-### 5.2. Pipeline de Despliegue en Vercel
-- **Node.js:** Versión 26 (`"engines": { "node": "26.x" }` en `package.json`).
-- **Comando de construcción:** `"build": "prisma generate && node scripts/auto-migrate.mjs && next build"`.
-- **Comportamiento de auto-migración:** Sincroniza el esquema con la base de datos configurada en `DATABASE_URL`. Si detecta cero usuarios, ejecuta automáticamente el sembrado inicial (`prisma/seed.ts`).
+### F8 · Despliegue y operación
+Pruebas de carga (300 electores concurrentes, p95 de emisión < 800 ms, escrutinio < 10 s); runbook de contingencia (apertura/cierre manual, respaldo y restauración); simulacro UAT con la Comisión antes de cargar el padrón real; actualizar este handout.
+
+### Deuda técnica y mejoras conocidas
+- **Dependencias:** `npm audit` marca 5 altas que solo se corrigen subiendo de versión mayor (Next 16, Prisma 7, Zod 4); hacerlo con los tests e2e como red de seguridad.
+- **Limitador de intentos en memoria** (por instancia); en Vercel debería ir en BD o almacén compartido.
+- **Actualizar acciones de GitHub** (`@v4` usan Node 20) cuando haya versiones nuevas.
+- **Roles de BD:** separar usuario de migraciones y de aplicación (el usuario prefirió uno solo).
+- Respaldo automático antes de abrir/cerrar/escrutar; firma digital de actas (PKI); página pública de auditoría de la cadena; ticket con QR; módulo de impugnaciones (Arts. 103–106); carga masiva optimizada del padrón (>1 500 estudiantes).
+- Segunda vuelta como proceso hijo (hoy la Comisión decide los empates).
 
 ---
 
-## 6. Credenciales y Fixtures de Prueba del Sistema
+## 10. Reglas para la siguiente IA
 
-Datos precargados por defecto en el sembrado (`prisma/seed.ts`) para auditorías, pruebas funcionales y desarrollo:
-
-| Rol | Nombre de Usuario (Login) | Carnet de Identidad (Contraseña) | Brigada | MFA TOTP | Responsabilidad / Función |
-|---|---|---|---|---|---|
-| **`ADMIN`** | `Adrian` | `99091978927` | 41 | Requerido (`/api/auth/totp/current`) | Administrador general de la plataforma. Configuración y control global. |
-| **`COMMISSION`** | `Liz` | `06091668099` | 41 | Requerido (`/api/auth/totp/current`) | **Presidente de la Comisión Electoral de Facultad.** Apertura, cierre y firma de actas. |
-| **`COMMISSION`** | `Revisor` | `11111111111` | 41 | Requerido (`/api/auth/totp/current`) | **2do Miembro / Revisor de la Comisión.** Escrutinio, supervisión y firma de actas. |
-| **`VOTER`** | `Carlos Mendoza Ramos` | `98021411223` | 41 | No | Elector base / Candidato CAN-01. |
-| **`VOTER`** | `Beatriz Navarro Pino` | `98052122334` | 41 | No | Elector base / Candidata CAN-02. |
-| **`VOTER`** | `Daniel Gómez Herrera` | `98081533445` | 22 | No | Elector base / Candidato CAN-03. |
-| **`VOTER`** | `Elena Castillo Vargas` | `98110344556` | 22 | No | Elector base / Candidata CAN-04. |
-| **`VOTER`** | `Fernando Iglesias Morales` | `99031255667` | 12 | No | Elector base / Candidato CAN-05. |
-| **`VOTER`** | `Gabriela Ortega Serrano` | `99062566778` | 12 | No | Elector base / Candidata CAN-06. |
-| **`VOTER`** | `Héctor Paredes Fuentes` | `99090877889` | 11 | No | Elector base / Candidato CAN-07. |
-| **`VOTER`** | `Isabel Romero Cruz` | `99101988990` | 11 | No | Elector base / Candidata CAN-08. |
-| **`VOTER`** | `Javier Soto Delgado` | `99120499001` | 32 | No | Elector base / Candidato CAN-09. |
-| **`VOTER`** | `Katia Molina Reyes` | `97070710293` | 32 | No | Elector base / Candidata CAN-10. |
-
-> [!NOTE]
-> Para obtener el código TOTP activo de las cuentas oficiales durante pruebas manuales o inspección de QA, se puede consultar el endpoint interno `GET /api/auth/totp/current` o emplear la clave compartida de pruebas `0123456789abcdef0123456789abcdef01234567`.
+- **Idioma:** español. Estilo del código: comentarios útiles, sin ruido; el dominio se mantiene puro.
+- **Antes de tocar nada:** lea este documento y `git log`. Compruebe tipos, lint y tests; si el CI falla, el commit no está terminado.
+- **No reintroduzca** emojis, correos, contraseñas derivadas del carnet, botones de reinicio de urnas, comprobantes que muestren el voto, estado en memoria ni datos de demostración como respaldo.
+- **No escriba en la BD `feu` del usuario ni en producción.** Use una BD de pruebas local.
+- **Decisiones del usuario:** si una tarea requiere una decisión que no esté en §5, pregúntela (con opciones y una recomendación) antes de implementarla.
+- **Windows:** Git Bash y PowerShell están disponibles; en Git Bash la conversión de rutas deforma variables con URL (use PowerShell para ellas). Los heredocs muy largos pueden fallar: escriba los archivos con la herramienta de escritura.
 
 ---
 
-## 7. Oportunidades de Mejora y Formalización Institucional Futura
-
-Para elevar aún más el estándar de rigor, auditoría y formalidad institucional de cara a eventos electorales de alta envergadura, se recomiendan los siguientes puntos de evolución:
-
-1. **Firma Digital Criptográfica de las Actas (Infraestructura de Clave Pública / PKI):**
-   - Actualmente el PDF oficial incluye un hash SHA-256 del resultado y los sellos textuales de las autoridades.
-   - *Mejora recomendada:* Incorporar pares de claves asimétricas (ECDSA o RSA) para los miembros de la Comisión Electoral, de modo que el acta PDF contenga una firma criptográfica verificable con clave pública que garantice el no repudio institucional.
-2. **Respaldos Automatizados Snapshot en Puntos de Control Críticos:**
-   - Implementar un mecanismo de respaldo automático en caliente de la base de datos PostgreSQL (`pg_dump` cifrado y enviado a almacenamiento frío) antes de eventos de estado irreversibles:
-     - Justo antes de cambiar a `ABIERTA`.
-     - Justo antes de cambiar a `CERRADA`.
-     - Inmediatamente después de ejecutar el escrutinio.
-3. **Página Pública Autónoma de Auditoría de la Cadena de Bloques:**
-   - Crear una ruta `/auditoria-publica` sin autenticación requerida donde cualquier estudiante u observador pueda validar en su propio navegador la integridad matemática de toda la cadena de eventos de auditoría (RFC 8785 / SHA-256), verificando eslabón por eslabón sin ver datos privados.
-4. **Comprobante de Voto Descargable en Ticket / Código QR:**
-   - Actualmente el votante puede copiar su comprobante al portapapeles.
-   - *Mejora recomendada:* Permitir la descarga de una imagen miniatura o PDF ligero tipo ticket electoral que incluya un código QR con el enlace directo al verificador de boletas: `/verificar?hash=<receipt_hash>`.
-5. **Módulo Formal de Impugnaciones y Reclamaciones (Arts. 103–106):**
-   - En v1 el registro de reclamaciones fue diferido a solicitud del usuario. Para versiones futuras, implementar una ventana reglamentaria (24 a 48 horas tras el escrutinio preliminar) donde los electores puedan presentar inconformidades con adjuntos antes del acta de cierre definitivo.
-6. **Optimización de Carga Masiva para el Padrón Completo de Facultad:**
-   - La Facultad de Ingeniería Informática cuenta con más de 1 500 estudiantes. Optimizar el parser de importación masiva (`importPadronIncremental`) mediante inserciones por lotes (`prisma.user.createMany`) para procesar el listado completo en menos de 2 segundos.
-
----
-
-## 8. Tareas Pendientes (Roadmap · Fase 8)
-
-### FASE 8 · Pruebas de Carga, Simulacro y Puesta a Punto para Despliegue
-- [ ] **8.1 Suite de pruebas de carga y concurrencia:**
-  - Script automatizado de estrés para simular 300 electores concurrentes y 2 000 boletas en ráfaga.
-  - Verificación de SLOs: tiempo de emisión de boleta p95 < 800 ms, escrutinio < 10 s.
-- [ ] **8.2 Contenedor Docker y Runbook Operativo de Despliegue:**
-  - Creación de `Dockerfile` multi-stage optimizado para Next.js 15 y `docker-compose.yml` (App + PostgreSQL).
-  - Runbook de contingencia con procedimientos paso a paso para el día de la elección (apertura manual de urnas, cierre anticipado, respaldo en caliente y restauración ante cortes eléctricos o caída de red).
-- [ ] **8.3 Simulacro general y aceptación UAT:**
-  - Ensayo integral con la Comisión Electoral utilizando datos de prueba antes de importar el listado real de la facultad.
-  - Verificación de firmas y exportación del acta de simulacro sin discrepancias.
-
----
-
-## 9. Directrices para la Siguiente IA
-
-- **Idioma de trabajo:** Español.
-- **Reglas del entorno Windows:**
-  - Siempre ejecutar comandos mediante `cmd.exe /c "<comando>"`.
-  - Usar siempre rutas con barras diagonales `/` en lugar de barras invertidas `\`.
-  - Encapsular la instrucción completa entre comillas.
-  - En Python forzar salida sin buffering (`python -u`).
-  - No ejecutar comandos interactivos o que esperen confirmación del usuario.
-- **Integridad de las decisiones de diseño:**
-  - No reintroducir emojis en la interfaz visual.
-  - No reintroducir botones destructivos como "Reiniciar Urnas".
-  - Mantener la paleta ámbar/oro de la Facultad y rojo carmesí para la FEU.
-  - Mantener el inicio de procesos estrictamente en `CONVOCADO`.
-  - Preservar la separación estricta de la Urna Ciega (`INV-04`).
-
----
-
-## 10. PROMPT PARA LA SIGUIENTE IA
+## 11. Prompt para la siguiente IA
 
 ```
-Continúa el proyecto del sistema web para la elección del Secretariado de la Facultad de Ingeniería Informática (FEU - CUJAE). Tu fuente de verdad operativa es este documento docs/handout-continuidad.md, junto con docs/migracion-web/08-marco-legal-feu.md, docs/migracion-web/09-plan-implementacion-facultad.md, docs/migracion-web/10-acta-f0-y-matriz-trazabilidad.md y el reglamento ABC-FEU-2019.pdf.
+Continúa el proyecto de elecciones del Secretariado de la FEU (Facultad de Ingeniería Informática, CUJAE) en https://github.com/AdrianRodriguezJorge/feu_elections_inf. Lee primero docs/handout-continuidad.md (estado, decisiones, directivas del usuario, pendientes) y auditoria/informe-auditoria-2026-11-13.md.
 
-Estado actual del proyecto:
-- Fases F0 a F7 completas y verificadas: 101 tests en verde, 0 errores de tipo, build Next.js 15.5 compilando limpio en Vercel con Node 26.
-- Base de datos relacional PostgreSQL con Prisma ORM 6.19.3 y triggers nativos PL/pgSQL WORM.
-- El repositorio está sincronizado en GitHub (rama main): https://github.com/AdrianRodriguezJorge/feu_elections_inf.
+Estado: fases F1–F5 y F7 hechas y subidas; el CI de GitHub es la prueba de que todo funciona. Falta la fase F6 (CRUDs operativos: padrón, candidatos, brigadas, comisión persistida, visor de auditoría para observadores) y la F8 (carga, runbook, UAT). El usuario aún debe reiniciar la BD de producción y añadir AUTH_SECRET en Vercel (handout §8); hasta entonces los builds de Vercel fallan con P3005.
 
-Reglas clave del negocio e invariantes:
-- N = Candidatos − 2 (demo: 10 candidatos → 8 puestos; o 11 candidatos → 9 puestos). Mínimo 5 candidatos (N ≥ 3).
-- Prohibición de voto en blanco: 0 marcas requiere confirmación explícita de anulación (ANULADA_POR_ELECTOR).
-- Quórum estricto > 85 % de participación requerida sobre la membresía total habilitada (Art. 38).
-- Urna ciega (INV-04): las boletas emitidas no contienen membershipId ni voterId.
-- Desempates estrictos: por votos a presidente o llamado a Segunda Vuelta (RUNOFF). Prohibido desempatar por azar o alfabético (Art. 40).
-- Proceso inicia en CONVOCADO; se abre manualmente por la Comisión/Admin. No hay botón de reiniciar urnas.
-- Autoridades de la Comisión en BD: Liz (Presidente, CI: 06091668099) y Revisor (2do Miembro/Revisor, CI: 11111111111).
-- Admin: Adrian (CI: 99091978927).
-- Sin correos en la UI. Autenticación por Nombre y Carnet de Identidad. Cero emojis en la interfaz.
-
-Tareas inmediatas del roadmap:
-- Fase 8: Pruebas de estrés y concurrencia (8.1), contenedor Docker y Runbook de contingencias (8.2), y ensayo general UAT con la Comisión Electoral (8.3).
+Reglas: un commit por fase directamente en main y push; antes de empezar cada fase pregunta las decisiones abiertas y espera respuesta; trato de usted y estética "papeleta impresa" ya definidos; el voto es secreto (urna ciega, comprobante que solo confirma inclusión); no uses Docker ni escribas en la BD feu del usuario; ejecuta las pruebas en GitHub Actions. Empieza por plantear al usuario las decisiones de F6.
 ```

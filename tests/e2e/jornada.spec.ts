@@ -62,7 +62,8 @@ test("la electora activa su cuenta desde la interfaz y ve la espera", async ({ p
   await page.getByLabel("Contraseña", { exact: true }).fill(BEATRIZ.password);
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
   await expect(page.getByText("La Votación aún no ha comenzado")).toBeVisible();
-  await expect(page.getByRole("button", { name: "Administración" })).toHaveCount(0);
+  await expect(page).toHaveURL(/\/votar$/);
+  await expect(page.getByRole("link", { name: "Comisión" })).toHaveCount(0);
   await expect(page.getByText(/Sufragio/)).toHaveCount(0);
   await expectAccessible(page, "espera-elector");
   await capture(page, "02-espera-elector");
@@ -114,11 +115,46 @@ test("la Comisión cierra y escruta: sin quórum no se proclama", async ({ page 
   await confirmAction(page, "Cerrar votación");
   await expect(page.getByRole("button", { name: "Abrir votación", exact: true })).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Escrutinio" }).click();
+  await page.getByRole("link", { name: "Resultados" }).click();
+  await expect(page).toHaveURL(/\/resultados$/);
   await confirmAction(page, "Realizar escrutinio");
   await expect(page.getByText("La elección no es válida por falta de quórum (Art. 38)")).toBeVisible();
   await expect(page.getByText(/Presidente electo de la Facultad/)).toHaveCount(0);
   await expect(page.getByText("Acta de escrutinio y proclamación")).toHaveCount(0);
   await expectAccessible(page, "sin-quorum");
   await capture(page, "09-sin-quorum");
+});
+
+test("cada rol solo entra en sus rutas", async ({ page }) => {
+  await login(page, BEATRIZ.ci, BEATRIZ.password);
+  await expect(page).toHaveURL(/\/votar$/);
+  await page.goto("/comision");
+  await expect(page).toHaveURL(/\/votar$/);
+  await page.goto("/observacion");
+  await expect(page).toHaveURL(/\/votar$/);
+});
+
+test("páginas públicas sin sesión: verificar y reglamento", async ({ page }) => {
+  await page.goto("/votar");
+  await expect(page).toHaveURL(/\/$/);
+  await page.getByRole("link", { name: "Verificar un comprobante" }).click();
+  await expect(page).toHaveURL(/\/verificar$/);
+  await expectAccessible(page, "verificar");
+  await page.goto("/reglamento");
+  await expect(page.getByRole("searchbox").or(page.getByRole("textbox")).first()).toBeVisible();
+  await expectAccessible(page, "reglamento");
+});
+
+test("capturas de cada pantalla en escritorio y móvil", async ({ page }) => {
+  await login(page, "Liz", AUTHORITY_PASSWORD);
+  for (const width of [1280, 375]) {
+    await page.setViewportSize({ width, height: width === 375 ? 812 : 900 });
+    for (const path of ["/comision", "/resultados", "/observacion", "/reglamento"]) {
+      await page.goto(path);
+      await page.waitForLoadState("networkidle");
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `${path} a ${width}px`).toBeLessThanOrEqual(0);
+      await capture(page, `pantalla-${path.slice(1)}-${width}`);
+    }
+  }
 });

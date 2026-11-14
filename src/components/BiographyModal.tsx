@@ -27,8 +27,8 @@ export function BiographyModal({ candidate, onClose }: BiographyModalProps) {
             <DialogDescription>Brigada {candidate.brigadeCode}</DialogDescription>
           </DialogHeader>
 
-          <div className="my-4 max-h-72 overflow-y-auto rounded-lg bg-gray-50 p-4 text-sm text-gray-900">
-            <h3 className="mb-2 font-semibold text-gray-800">Biografía y trayectoria estudiantil</h3>
+          <div className="my-4 max-h-72 overflow-y-auto rounded-md border border-line bg-paper p-4 text-base text-ink-900">
+            <h3 className="mb-2 text-sm font-bold text-ink-800">Biografía y trayectoria estudiantil</h3>
             <p className="whitespace-pre-line leading-relaxed">
               {candidate.biographyMd || "Este candidato aún no tiene biografía publicada."}
             </p>
