@@ -40,24 +40,17 @@ enum ProcessType {
   PRESIDENTE
 }
 
-/// Estados del proceso electoral (09 §3.1).
-/// ADMIN cambia los decisivos; COMMISSION los intermedios.
+/// Estados del proceso electoral usados en v1 (F2). Ver src/domain/states.ts.
 enum ProcessStatus {
-  BORRADOR
   CONVOCADO
-  LISTO
   ABIERTA
   CERRADA
-  ESCRUTADA
-  EMPATE
-  SEGUNDA_VUELTA
   SIN_QUORUM
+  EMPATE
   PROCLAMADA
   VP_DESIGNADA
   FINALIZADA
-  IMPUGNADA
   VACANTE
-  ANULADA
 }
 
 /// Modo de votación. v1 solo usa SECRET (se asume padrón > 100).
@@ -221,7 +214,7 @@ model ElectoralProcess {
   structure     Structure    @relation(fields: [structureId], references: [id], onDelete: Cascade)
   type          ProcessType  @default(SECRETARIADO)
   academicYear  String
-  status        ProcessStatus @default(BORRADOR)
+  status        ProcessStatus @default(CONVOCADO)
   parentProcessId String?
   parentProcess   ElectoralProcess? @relation("Runoff", fields: [parentProcessId], references: [id])
   childProcesses  ElectoralProcess[] @relation("Runoff")
@@ -236,7 +229,8 @@ model ElectoralProcess {
   proposalSlots Int          @default(0)
   votingMode    VotingMode   @default(SECRET)
   quorumPct     Decimal      @default(85) @db.Decimal(5, 2)
-  quorumExceptionPct Decimal?
+  /// Excepción de quórum aprobada (80-85 %), aplicada por el Administrador con acta (F2).
+  quorumExceptionPct Decimal? @db.Decimal(5, 2)
   majorityRule  MajorityRule @default(TOP_N)
   tieRule       TieRule      @default(PRESIDENT_VOTES_THEN_RUNOFF)
   /// Columnas de la boleta, en orden: NAME, BRIGADE, FACULTY, PROVINCE.

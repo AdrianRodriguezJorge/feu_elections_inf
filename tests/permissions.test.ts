@@ -43,8 +43,8 @@ describe("Roles, Autorización y Emisión de Voto (F2, RGF-25, INV-06)", () => {
   });
 
   it("canCastBallot: rechaza si el proceso no está en ABIERTA", () => {
-    expect(canCastBallot("VOTER", "BORRADOR", true, false).allowed).toBe(false);
-    expect(canCastBallot("VOTER", "LISTO", true, false).allowed).toBe(false);
+    expect(canCastBallot("VOTER", "CONVOCADO", true, false).allowed).toBe(false);
+    expect(canCastBallot("VOTER", "EMPATE", true, false).allowed).toBe(false);
     expect(canCastBallot("VOTER", "CERRADA", true, false).allowed).toBe(false);
     expect(canCastBallot("VOTER", "FINALIZADA", true, false).allowed).toBe(false);
   });

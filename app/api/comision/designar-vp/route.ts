@@ -1,70 +1,26 @@
-import { NextRequest, NextResponse } from "next/server";
-import { electionStore } from "@/server/election-store";
-import { createInitialComposition } from "@/domain/vacancies";
-import { requirePermission } from "@/server/guard";
+import { NextResponse } from "next/server";
+import { z } from "zod";
+import { designateVicePresident } from "@/server/election-service";
+import { errorResponse, parseBody, requirePermission } from "@/server/guard";
 
-/**
- * Designación del Vicepresidente por la Comisión Electoral entre los miembros electos (F5, Art. 67).
- */
-export async function POST(request: NextRequest) {
+const schema = z.object({ candidateId: z.string().trim().min(1) });
+
+/** Designación del vicepresidente entre los electos (Art. 67). */
+export async function POST(request: Request) {
   const guard = await requirePermission("DESIGNATE_VICE_PRESIDENT");
   if (!guard.ok) return guard.response;
+  const body = await parseBody(request, schema);
+  if (!body.ok) return body.response;
 
   try {
-    await electionStore.ensureReady();
-    const body = (await request.json()) as { candidateId?: string };
-    const candidateId = body.candidateId?.trim();
-
-    if (!candidateId) {
-      return NextResponse.json(
-        { ok: false, error: "Identificador del candidato a designar requerido." },
-        { status: 400 },
-      );
-    }
-
-    if (!electionStore.tallyResult) {
-      return NextResponse.json(
-        { ok: false, error: "Debe realizarse el escrutinio antes de designar al Vicepresidente." },
-        { status: 400 },
-      );
-    }
-
-    if (!electionStore.tallyResult.elected.includes(candidateId)) {
-      return NextResponse.json(
-        { ok: false, error: "El Vicepresidente debe ser seleccionado exclusivamente entre los miembros electos del secretariado." },
-        { status: 422 },
-      );
-    }
-
-    if (electionStore.tallyResult.presidentId === candidateId) {
-      return NextResponse.json(
-        { ok: false, error: "El Presidente electo no puede ser simultáneamente Vicepresidente." },
-        { status: 422 },
-      );
-    }
-
-    const candidate = electionStore.snapshot.find((c) => c.candidateId === candidateId);
-    const presCandidate = electionStore.snapshot.find((c) => c.candidateId === electionStore.tallyResult!.presidentId);
-    const otherElected = electionStore.snapshot.filter((c) => electionStore.tallyResult!.elected.includes(c.candidateId));
-
-    if (presCandidate && candidate) {
-      const comp = createInitialComposition(presCandidate, candidate, otherElected);
-      await electionStore.saveCompositionState(guard.user, comp, candidateId);
-    }
-    await electionStore.setStatus("VP_DESIGNADA", guard.user);
-
+    const composition = await designateVicePresident(guard.user, body.data.candidateId);
     return NextResponse.json({
       ok: true,
-      message: `Vicepresidente designado formalmente: ${candidate?.fullName ?? candidateId}.`,
-      designatedVpId: candidateId,
-      status: electionStore.status,
-      composition: electionStore.composition,
+      message: `Vicepresidente designado: ${composition.vicePresident?.fullName ?? body.data.candidateId}.`,
+      designatedVpId: body.data.candidateId,
+      composition,
     });
-  } catch {
-    return NextResponse.json(
-      { ok: false, error: "Error procesando la designación de Vicepresidencia." },
-      { status: 500 },
-    );
+  } catch (err) {
+    return errorResponse(err);
   }
 }
-

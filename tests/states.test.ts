@@ -1,84 +1,43 @@
 import { describe, expect, it } from "vitest";
-import {
-  availableTransitions,
-  canTransition,
-  isTerminal,
-  isVisibleToVoter,
-  TRANSITIONS,
-} from "@/domain/states";
-import type { ProcessStatus, UserRole } from "@/domain/types";
+import { availableTransitions, canTransition, isTerminal, isVisibleToVoter, TRANSITIONS } from "@/domain/states";
+import type { ProcessStatus } from "@/domain/types";
 
-describe("Máquina de estados y roles (09 §3.1)", () => {
-  it("el ADMIN inicia el proceso y cambia los estados decisivos", () => {
-    expect(canTransition("BORRADOR", "CONVOCADO", "ADMIN")).toBe(true);
-    expect(canTransition("LISTO", "ABIERTA", "ADMIN")).toBe(true);
-    expect(canTransition("ABIERTA", "CERRADA", "ADMIN")).toBe(true);
-  });
-
-  it("la COMISIÓN cambia los estados intermedios que el votante no ve", () => {
-    expect(canTransition("CONVOCADO", "LISTO", "COMMISSION")).toBe(true);
-    expect(canTransition("CERRADA", "ESCRUTADA", "COMMISSION")).toBe(true);
-    expect(canTransition("ESCRUTADA", "PROCLAMADA", "COMMISSION")).toBe(true);
-    expect(canTransition("PROCLAMADA", "VP_DESIGNADA", "COMMISSION")).toBe(true);
-    expect(canTransition("VP_DESIGNADA", "FINALIZADA", "COMMISSION")).toBe(true);
-    expect(canTransition("FINALIZADA", "VACANTE", "COMMISSION")).toBe(true);
-  });
-
-  it("el VOTER no cambia ningún estado del proceso", () => {
-    for (const from of Object.keys(TRANSITIONS) as ProcessStatus[]) {
-      for (const transition of TRANSITIONS[from]) {
-        expect(transition.roles).not.toContain("VOTER");
-      }
+describe("Máquina de estados v1 (F2)", () => {
+  it("la Comisión y el Administrador abren y cierran la votación", () => {
+    for (const role of ["ADMIN", "COMMISSION"] as const) {
+      expect(canTransition("CONVOCADO", "ABIERTA", role)).toBe(true);
+      expect(canTransition("ABIERTA", "CERRADA", role)).toBe(true);
     }
   });
 
-  it("el OBSERVER no cambia ningún estado", () => {
+  it("votantes y observadores no cambian ningún estado", () => {
     for (const from of Object.keys(TRANSITIONS) as ProcessStatus[]) {
-      for (const transition of TRANSITIONS[from]) {
-        expect(transition.roles).not.toContain("OBSERVER");
-      }
+      expect(availableTransitions(from, "VOTER")).toHaveLength(0);
+      expect(availableTransitions(from, "OBSERVER")).toHaveLength(0);
     }
   });
 
-  it("la COMISIÓN no abre ni cierra la votación", () => {
-    expect(canTransition("LISTO", "ABIERTA", "COMMISSION")).toBe(false);
-    expect(canTransition("ABIERTA", "CERRADA", "COMMISSION")).toBe(false);
-  });
-
-  it("el votante solo ve ABIERTA", () => {
-    expect(isVisibleToVoter("ABIERTA")).toBe(true);
-    expect(isVisibleToVoter("BORRADOR")).toBe(false);
-    expect(isVisibleToVoter("ESCRUTADA")).toBe(false);
-    expect(isVisibleToVoter("FINALIZADA")).toBe(false);
-  });
-
-  it("no se puede reabrir un proceso cerrado", () => {
+  it("no se puede reabrir una votación cerrada ni volver a CONVOCADO", () => {
     expect(canTransition("CERRADA", "ABIERTA", "ADMIN")).toBe(false);
-    expect(canTransition("FINALIZADA", "ABIERTA", "ADMIN")).toBe(false);
-  });
-
-  it("ANULADA es terminal", () => {
-    expect(isTerminal("ANULADA")).toBe(true);
-    expect(availableTransitions("ANULADA", "ADMIN")).toHaveLength(0);
-  });
-
-  it("cada transición declara al menos un rol autorizado", () => {
+    expect(canTransition("PROCLAMADA", "ABIERTA", "ADMIN")).toBe(false);
     for (const from of Object.keys(TRANSITIONS) as ProcessStatus[]) {
-      for (const transition of TRANSITIONS[from]) {
-        expect(transition.roles.length).toBeGreaterThan(0);
-        expect(transition.label.length).toBeGreaterThan(0);
-      }
+      expect(TRANSITIONS[from].some((t) => t.to === "CONVOCADO")).toBe(false);
     }
   });
 
-  it("todo rol sin permiso no ve transiciones disponibles", () => {
-    const roles: UserRole[] = ["ADMIN", "COMMISSION", "VOTER", "OBSERVER"];
-    for (const from of Object.keys(TRANSITIONS) as ProcessStatus[]) {
-      for (const role of roles) {
-        for (const transition of availableTransitions(from, role)) {
-          expect(transition.roles).toContain(role);
-        }
-      }
-    }
+  it("el escrutinio solo sale de CERRADA y SIN_QUORUM es terminal", () => {
+    expect(canTransition("ABIERTA", "PROCLAMADA", "COMMISSION")).toBe(false);
+    expect(canTransition("CERRADA", "SIN_QUORUM", "COMMISSION")).toBe(true);
+    expect(isTerminal("SIN_QUORUM")).toBe(true);
+  });
+
+  it("un empate solo lleva a PROCLAMADA (decisión de la Comisión)", () => {
+    expect(availableTransitions("EMPATE", "COMMISSION").map((t) => t.to)).toEqual(["PROCLAMADA"]);
+  });
+
+  it("el votante solo ve la boleta en ABIERTA", () => {
+    expect(isVisibleToVoter("ABIERTA")).toBe(true);
+    expect(isVisibleToVoter("CONVOCADO")).toBe(false);
+    expect(isVisibleToVoter("CERRADA")).toBe(false);
   });
 });

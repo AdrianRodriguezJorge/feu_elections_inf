@@ -8,7 +8,10 @@
 // Escribe datos (activa una cuenta, abre la votación y emite un voto), así que
 // la BD debe resembrarse después.
 
+import { client as makeClient } from "./client.mjs";
+
 const BASE = process.argv[2] ?? "http://localhost:3005";
+const client = () => makeClient(BASE);
 let failures = 0;
 
 function check(name, condition, detail = "") {
@@ -16,57 +19,6 @@ function check(name, condition, detail = "") {
   if (!condition) failures++;
 }
 
-/** Cliente con tarro de cookies mínimo. */
-function client() {
-  const jar = new Map();
-  const cookieHeader = () => [...jar].map(([k, v]) => `${k}=${v}`).join("; ");
-  async function request(path, init = {}) {
-    const res = await fetch(BASE + path, {
-      redirect: "manual",
-      ...init,
-      headers: { ...(init.headers ?? {}), cookie: cookieHeader() },
-    });
-    for (const c of res.headers.getSetCookie?.() ?? []) {
-      const [pair] = c.split(";");
-      const idx = pair.indexOf("=");
-      jar.set(pair.slice(0, idx).trim(), pair.slice(idx + 1));
-    }
-    return res;
-  }
-  async function json(path, init = {}) {
-    const res = await request(path, init);
-    let body = null;
-    try {
-      body = await res.json();
-    } catch {
-      body = null;
-    }
-    return { status: res.status, body };
-  }
-  async function post(path, data) {
-    return json(path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(data) });
-  }
-  /** Inicio de sesión con Auth.js. Devuelve el código de error o null si entra. */
-  async function login(identifier, password, totp = "") {
-    const { body } = await json("/api/auth/csrf");
-    const form = new URLSearchParams({ csrfToken: body.csrfToken, identifier, password, totp });
-    const res = await request("/api/auth/callback/credentials", {
-      method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded" },
-      body: form,
-    });
-    const location = res.headers.get("location") ?? "";
-    if (location.includes("error=")) return new URL(location, BASE).searchParams.get("code") ?? "error";
-    const session = await json("/api/auth/session");
-    return session.body?.user?.ci ? null : "no_session";
-  }
-  return { request, json, post, login, jar };
-}
-
-async function devTotp(identifier) {
-  const res = await fetch(`${BASE}/api/auth/totp/current?id=${encodeURIComponent(identifier)}`);
-  return res.ok ? (await res.json()).token : null;
-}
 
 const CARLOS = { ci: "98021411223", name: "Carlos Mendoza Ramos", password: "Prueba2026x" };
 const KATIA_CI = "97070710293";
@@ -81,7 +33,7 @@ r = await anon.post("/api/eleccion/estado", { action: "SET_STATUS", status: "FIN
 check("S1 SET_STATUS ya no existe (422)", r.status === 422, `status ${r.status}`);
 r = await anon.post("/api/voto/emitir", { voterCi: KATIA_CI, selections: [] });
 check("S2 votar sin sesión → 401", r.status === 401, `status ${r.status}`);
-for (const path of ["/api/auditoria", "/api/padron/import", "/api/brigadas", "/api/eleccion/config"]) {
+for (const path of ["/api/auditoria", "/api/padron/import", "/api/brigadas", "/api/comision"]) {
   r = await anon.json(path);
   check(`S1 GET ${path} sin sesión → 401`, r.status === 401, `status ${r.status}`);
 }
@@ -121,12 +73,11 @@ const candidates = r.body?.candidates ?? [];
 r = await voter.post("/api/eleccion/estado", { action: "ABRIR" });
 check("Un elector no puede abrir la votación (403)", r.status === 403, `status ${r.status}`);
 
-// --- Autoridad con segundo factor --------------------------------------------
+// --- Autoridad -------------------------------------------------------------------
+// TOTP desactivado por decisión F2 (se reactiva con AUTH_MFA_ENABLED=true).
 const liz = client();
-check("Liz sin TOTP → se pide el código", (await liz.login("Liz", "06091668099")) === "totp_required");
-check("Liz con TOTP incorrecto → rechazado", (await liz.login("Liz", "06091668099", "000000")) === "totp_invalid");
-const lizCode = await devTotp("Liz");
-check("Liz con TOTP válido entra", lizCode !== null && (await liz.login("Liz", "06091668099", lizCode)) === null);
+check("Liz con contraseña incorrecta → rechazada", (await liz.login("Liz", "contrasena-mala")) === "credentials");
+check("Liz entra con su contraseña", (await liz.login("Liz", "06091668099")) === null);
 r = await liz.post("/api/cuenta/restablecer", { ci: KATIA_CI });
 check("Restablecer cuenta no activada → 404", r.status === 404, `status ${r.status}`);
 r = await liz.post("/api/eleccion/estado", { action: "ABRIR" });

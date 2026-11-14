@@ -11,6 +11,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import { Action, hasPermission } from "@/domain/permissions";
 import type { SessionUser } from "@/lib/session-user";
+import { ServiceError } from "@/server/election-service";
 
 export type GuardResult = { ok: true; user: SessionUser } | { ok: false; response: NextResponse };
 
@@ -68,4 +69,19 @@ export async function parseBody<T extends z.ZodTypeAny>(
     };
   }
   return { ok: true, data: parsed.data };
+}
+
+/**
+ * Convierte un error del servicio en respuesta. Cualquier error inesperado
+ * (p. ej. base de datos caída) responde 503: nunca se sirven datos inventados.
+ */
+export function errorResponse(err: unknown): NextResponse {
+  if (err instanceof ServiceError) {
+    return NextResponse.json({ ok: false, error: err.message }, { status: err.status });
+  }
+  console.error("[api] error inesperado:", err);
+  return NextResponse.json(
+    { ok: false, error: "El sistema electoral no está disponible en este momento. Inténtalo de nuevo en unos minutos." },
+    { status: 503 },
+  );
 }

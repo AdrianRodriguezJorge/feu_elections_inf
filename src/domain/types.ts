@@ -7,23 +7,21 @@
  *  - Este módulo es puro: no importa Prisma, ni Next, ni nada de infraestructura.
  */
 
-/** Estados del proceso electoral (docs/migracion-web/09 §3.1). */
+/**
+ * Estados del proceso electoral usados en v1 (decisión F2).
+ * Otros estados del plan (BORRADOR, LISTO, IMPUGNADA, ANULADA, SEGUNDA_VUELTA)
+ * quedan documentados como ampliación futura.
+ */
 export type ProcessStatus =
-  | "BORRADOR"
   | "CONVOCADO"
-  | "LISTO"
   | "ABIERTA"
   | "CERRADA"
-  | "ESCRUTADA"
-  | "EMPATE"
-  | "SEGUNDA_VUELTA"
   | "SIN_QUORUM"
+  | "EMPATE"
   | "PROCLAMADA"
   | "VP_DESIGNADA"
   | "FINALIZADA"
-  | "IMPUGNADA"
-  | "VACANTE"
-  | "ANULADA";
+  | "VACANTE";
 
 /** Roles del sistema (docs/migracion-web/09 §3.1 «Roles y quién cambia cada estado»). */
 export type UserRole = "ADMIN" | "COMMISSION" | "VOTER" | "OBSERVER";

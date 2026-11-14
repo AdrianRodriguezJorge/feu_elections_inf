@@ -8,7 +8,7 @@ import {
 
 describe("Registro WORM y Cadena de Auditoría Inmutable (Art. 66 / RGF-33)", () => {
   it("crea una cadena de eventos encadenada por SHA-256", () => {
-    let chain: AuditLogEntry[] = [];
+    const chain: AuditLogEntry[] = [];
 
     const ev1 = appendAuditEntry(chain, "02031194852", "COMMISSION", "PROCESO_CREADO", { year: 2026 });
     chain.push(ev1);
@@ -34,7 +34,7 @@ describe("Registro WORM y Cadena de Auditoría Inmutable (Art. 66 / RGF-33)", ()
   });
 
   it("detecta manipulación o alteración de datos en un evento anterior", () => {
-    let chain: AuditLogEntry[] = [];
+    const chain: AuditLogEntry[] = [];
     chain.push(appendAuditEntry(chain, "02031194852", "COMMISSION", "PROCESO_CREADO", { year: 2026 }));
     chain.push(appendAuditEntry(chain, "03080468489", "VOTER", "BOLETA_EMITIDA", { status: "VALIDA" }));
 
@@ -48,7 +48,7 @@ describe("Registro WORM y Cadena de Auditoría Inmutable (Art. 66 / RGF-33)", ()
   });
 
   it("detecta eliminación de un eslabón intermedio", () => {
-    let chain: AuditLogEntry[] = [];
+    const chain: AuditLogEntry[] = [];
     chain.push(appendAuditEntry(chain, "01", "ADMIN", "PROCESO_CREADO", {}));
     chain.push(appendAuditEntry(chain, "02", "COMMISSION", "VOTACION_ABIERTA", {}));
     chain.push(appendAuditEntry(chain, "03", "VOTER", "BOLETA_EMITIDA", {}));

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { electionStore } from "@/server/election-store";
+import { hasReceipt } from "@/server/election-service";
+import { errorResponse } from "@/server/guard";
 import { checkRateLimit } from "@/server/rate-limiter";
 import { clientIp } from "@/server/request";
 
@@ -28,8 +29,12 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  await electionStore.ensureReady();
-  const found = electionStore.hasReceipt(hash);
+  let found: boolean;
+  try {
+    found = await hasReceipt(hash);
+  } catch (err) {
+    return errorResponse(err);
+  }
 
   return NextResponse.json(
     found

@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import fc from "fast-check";
-import { recommendSuccessor, recommendVicePresident, tally } from "@/domain/tally";
+import { recommendSuccessor, recommendVicePresident, resolveTie, tally } from "@/domain/tally";
 import type { BallotSelection } from "@/domain/types";
 
-const IDS = ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k"]; // 11 candidatos
-const SEATS = 9;
+// 5 candidatos → 3 puestos (N = C − 2). Los escenarios dejan el corte sin empate
+// salvo que el test busque precisamente un empate.
+const IDS = ["a", "b", "c", "d", "e"];
+const SEATS = 3;
 
 function ballot(memberIds: string[], presidentId: string) {
   const allIds = Array.from(new Set([...memberIds, presidentId]));
@@ -86,7 +88,7 @@ describe("Escrutinio (RGF-12, RGF-13, RGF-14)", () => {
       ballot(["a", "b"], "a"),
       ballot(["a", "b"], "b"),
     ];
-    const result = tally(ballots, IDS, SEATS);
+    const result = tally(ballots, ["a", "b", "c"], 2);
     expect(result.tie?.type).toBe("PRESIDENT");
     expect(result.presidentId).toBeNull();
   });
@@ -109,7 +111,7 @@ describe("Escrutinio (RGF-12, RGF-13, RGF-14)", () => {
       fc.property(
         fc.array(
           fc.tuple(
-            fc.subarray(IDS, { minLength: 1, maxLength: 5 }),
+            fc.subarray(IDS, { minLength: 1, maxLength: SEATS }),
             fc.constantFrom(...IDS),
           ),
           { minLength: 1, maxLength: 30 },
@@ -129,7 +131,7 @@ describe("Escrutinio (RGF-12, RGF-13, RGF-14)", () => {
       fc.property(
         fc.array(
           fc.tuple(
-            fc.subarray(IDS, { minLength: 1, maxLength: 5 }),
+            fc.subarray(IDS, { minLength: 1, maxLength: SEATS }),
             fc.constantFrom(...IDS),
           ),
           { minLength: 1, maxLength: 30 },
@@ -174,5 +176,49 @@ describe("Vicepresidente y sucesión (RGF-18, RGF-31, Q-L13, Q-L14)", () => {
     ];
     const result = tally(ballots, IDS, SEATS);
     expect(recommendSuccessor(result, null)).toBe("b");
+  });
+});
+
+describe("Empates a cero votos y decisión de la Comisión (F2)", () => {
+  it("un empate a cero votos en el corte se detecta (no decide el orden alfabético)", () => {
+    const ballots = [ballot(["a", "b"], "a")];
+    const result = tally(ballots, IDS, SEATS);
+    expect(result.tie?.type).toBe("CUT");
+    expect(result.tie?.candidateIds).toEqual(["c", "d", "e"]);
+    expect(result.elected).toEqual([]);
+  });
+
+  it("la Comisión completa el corte eligiendo entre los empatados", () => {
+    const result = tally([ballot(["a", "b"], "a")], IDS, SEATS);
+    const outcome = resolveTie(result, SEATS, { electedIds: ["d"] });
+    expect(outcome.ok).toBe(true);
+    if (!outcome.ok) return;
+    expect(outcome.result.elected.sort()).toEqual(["a", "b", "d"]);
+    expect(outcome.result.presidentId).toBe("a");
+    expect(outcome.result.tie).toBeNull();
+    expect(outcome.result.resolution?.chosenIds).toEqual(["d"]);
+  });
+
+  it("rechaza elegir a alguien que no está empatado o un número incorrecto", () => {
+    const result = tally([ballot(["a", "b"], "a")], IDS, SEATS);
+    expect(resolveTie(result, SEATS, { electedIds: ["a"] }).ok).toBe(false);
+    expect(resolveTie(result, SEATS, { electedIds: ["c", "d"] }).ok).toBe(false);
+  });
+
+  it("la Comisión elige al presidente entre los empatados en presidencia", () => {
+    const result = tally([ballot(["a", "b"], "a"), ballot(["a", "b"], "b")], ["a", "b", "c"], 2);
+    expect(resolveTie(result, 2, {}).ok).toBe(false);
+    expect(resolveTie(result, 2, { presidentId: "c" }).ok).toBe(false);
+    const outcome = resolveTie(result, 2, { presidentId: "b" });
+    expect(outcome.ok && outcome.result.presidentId).toBe("b");
+  });
+
+  it("si tras completar el corte hay empate en presidencia, exige el presidente", () => {
+    const ballots = [ballot(["a", "b"], "a"), ballot(["a", "b"], "b")];
+    const result = tally(ballots, IDS, SEATS);
+    expect(result.tie?.type).toBe("CUT");
+    expect(resolveTie(result, SEATS, { electedIds: ["c"] }).ok).toBe(false);
+    const outcome = resolveTie(result, SEATS, { electedIds: ["c"], presidentId: "a" });
+    expect(outcome.ok && outcome.result.presidentId).toBe("a");
   });
 });

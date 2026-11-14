@@ -5,14 +5,13 @@ import { signOut } from "next-auth/react";
 import { Header, ActiveTab } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { VoterBallot, VoterInfo } from "@/components/VoterBallot";
-import { AdminPanel } from "@/components/AdminPanel";
+import { AdminPanel, QuorumInfo } from "@/components/AdminPanel";
 import { ResultsPanel } from "@/components/ResultsPanel";
 import { ReglamentoViewer } from "@/components/ReglamentoViewer";
 import { ObserverPanel } from "@/components/ObserverPanel";
 import { LoginCard } from "@/components/LoginCard";
 import type { SessionUser } from "@/lib/session-user";
 import { ProcessCandidateSnapshot } from "@/domain/candidates";
-import { ProcessConfig, DEFAULT_PROCESS_CONFIG } from "@/domain/config";
 
 interface ProcessSummary {
   status: string;
@@ -45,7 +44,7 @@ export default function Home() {
     requirementMet: false,
     candidacyHash: "",
   });
-  const [config, setConfig] = useState<ProcessConfig>(DEFAULT_PROCESS_CONFIG);
+  const [quorum, setQuorum] = useState<QuorumInfo>({ basePct: 85, effectivePct: 85, exception: null });
   const [candidates, setCandidates] = useState<ProcessCandidateSnapshot[]>([]);
   const [me, setMe] = useState<VoterInfo | null>(null);
   const [brigadeTurnout, setBrigadeTurnout] = useState<Array<{ code: string; total: number; voted: number }>>([]);
@@ -64,7 +63,7 @@ export default function Home() {
       const data = await res.json();
       if (data.ok) {
         setSummary(data.summary);
-        setConfig(data.config);
+        if (data.quorum) setQuorum(data.quorum);
         setCandidates(data.candidates || []);
         setMe(data.me ?? null);
         setBrigadeTurnout(data.brigadeTurnout ?? []);
@@ -171,7 +170,8 @@ export default function Home() {
         {activeTab === "ADMIN" && isAdminOrCommission && (
           <AdminPanel
             summary={summary}
-            config={config}
+            quorum={quorum}
+            role={currentUser.role}
             candidates={candidates}
             commission={commission}
             onRefresh={loadState}
@@ -181,6 +181,7 @@ export default function Home() {
         {activeTab === "RESULTADOS" && (
           <ResultsPanel
             status={summary.status}
+            role={currentUser.role}
             totalVotes={summary.totalVotes}
             totalEligible={summary.totalEligible}
             minParticipationPercentage={summary.minParticipationPercentage}

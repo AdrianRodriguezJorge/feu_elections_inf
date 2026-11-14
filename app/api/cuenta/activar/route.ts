@@ -1,8 +1,8 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { activateAccount } from "@/server/accounts";
-import { electionStore } from "@/server/election-store";
-import { parseBody } from "@/server/guard";
+import { getProcessStatus, recordAudit } from "@/server/election-service";
+import { errorResponse, parseBody } from "@/server/guard";
 import { checkRateLimit } from "@/server/rate-limiter";
 import { clientIp } from "@/server/request";
 
@@ -27,16 +27,17 @@ export async function POST(request: Request) {
   if (!body.ok) return body.response;
   const { ci, password } = body.data;
 
-  await electionStore.ensureReady();
-  const result = await activateAccount(ci, password, electionStore.status);
-  if (!result.ok) {
-    return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
+  try {
+    const result = await activateAccount(ci, password, await getProcessStatus());
+    if (!result.ok) {
+      return NextResponse.json({ ok: false, error: result.error }, { status: result.status });
+    }
+    await recordAudit(ci, "VOTER", "CUENTA_ACTIVADA", {});
+    return NextResponse.json({
+      ok: true,
+      message: `Cuenta activada, ${result.name}. Ya puedes iniciar sesión con tu carnet y tu nueva contraseña.`,
+    });
+  } catch (err) {
+    return errorResponse(err);
   }
-
-  await electionStore.recordAudit(ci, "VOTER", "CUENTA_ACTIVADA", {});
-
-  return NextResponse.json({
-    ok: true,
-    message: `Cuenta activada, ${result.name}. Ya puedes iniciar sesión con tu carnet y tu nueva contraseña.`,
-  });
 }

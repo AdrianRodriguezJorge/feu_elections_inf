@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
 import {
   Lock,
@@ -30,6 +30,7 @@ interface EnrichedTotal {
 
 interface ResultsPanelProps {
   status: string;
+  role: string;
   totalVotes: number;
   totalEligible: number;
   minParticipationPercentage: number;
@@ -38,6 +39,7 @@ interface ResultsPanelProps {
 
 export function ResultsPanel({
   status,
+  role,
   totalVotes,
   totalEligible,
   minParticipationPercentage,
@@ -68,29 +70,93 @@ export function ResultsPanel({
   const [successorCandidateId, setSuccessorCandidateId] = useState("");
   const [isProcessingVacancy, setIsProcessingVacancy] = useState(false);
   const [vacancyMsg, setVacancyMsg] = useState<{ success: boolean; message: string } | null>(null);
+  const [councilAttendance, setCouncilAttendance] = useState("");
+  const [councilInFavor, setCouncilInFavor] = useState("");
 
   // Designación de nuevo Vicepresidente tras vacancia
   const [newVpSuccessorId, setNewVpSuccessorId] = useState("");
   const [isDesignatingNewVp, setIsDesignatingNewVp] = useState(false);
 
-  // Cargar estado inicial y composición existente
-  useEffect(() => {
-    async function fetchCurrentState() {
-      try {
-        const res = await fetch("/api/eleccion/estado");
-        const data = await res.json();
-        if (data.composition) {
-          setComposition(data.composition);
-        }
-        if (data.designatedVpId) {
-          setSelectedVpId(data.designatedVpId);
-        }
-      } catch {
-        // Fallback silencioso
+  const isAuthority = role === "ADMIN" || role === "COMMISSION";
+  // Sin quórum o con empate pendiente no hay proclamación (Art. 38 y decisión F2).
+  const canProclaim = status !== "SIN_QUORUM" && status !== "EMPATE";
+
+  // Decisión de la Comisión sobre un empate
+  const [tieResolution, setTieResolution] = useState<{ justification: string; acta: string } | null>(null);
+  const [tieChosen, setTieChosen] = useState<string[]>([]);
+  const [tiePresident, setTiePresident] = useState("");
+  const [tieJustification, setTieJustification] = useState("");
+  const [tieActa, setTieActa] = useState("");
+  const [tieMsg, setTieMsg] = useState<string | null>(null);
+
+  // Resultados persistidos en el servidor (fuente de verdad)
+  const loadResults = useCallback(async () => {
+    try {
+      const res = await fetch("/api/eleccion/estado");
+      const data = await res.json();
+      if (!res.ok) return;
+      setComposition(data.composition ?? null);
+      if (data.designatedVpId) setSelectedVpId(data.designatedVpId);
+      setTieResolution(data.tieResolution ?? null);
+
+      const t = data.tallyResult;
+      const q = data.tallyQuorum;
+      if (!t || !q) {
+        setTallyData(null);
+        return;
       }
+      const proclaimed = !["SIN_QUORUM", "EMPATE"].includes(data.summary?.status);
+      const byId = new Map<string, { fullName: string; name: string; brigadeCode: string }>(
+        (data.candidates ?? []).map((c: { candidateId: string; fullName: string; name: string; brigadeCode: string }) => [
+          c.candidateId,
+          c,
+        ]),
+      );
+      const totals: EnrichedTotal[] = t.totals.map(
+        (x: { candidateId: string; memberVotes: number; presidentVotes: number }) => ({
+          ...x,
+          fullName: byId.get(x.candidateId)?.fullName ?? x.candidateId,
+          brigadeCode: byId.get(x.candidateId)?.brigadeCode ?? "",
+          isElected: proclaimed && t.elected.includes(x.candidateId),
+          isPresident: proclaimed && t.presidentId === x.candidateId,
+        }),
+      );
+      const president = proclaimed && t.presidentId ? (byId.get(t.presidentId) ?? null) : null;
+      setTallyData({ quorum: q, tally: { ...t, totals, president } });
+    } catch {
+      // Se reintenta al volver a la pestaña
     }
-    fetchCurrentState();
-  }, [status]);
+  }, []);
+
+  useEffect(() => {
+    loadResults();
+  }, [status, loadResults]);
+
+  // Resolver un empate (Comisión, con acta)
+  const handleResolveTie = async () => {
+    setTieMsg(null);
+    try {
+      const res = await fetch("/api/escrutinio/empate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...(tieChosen.length ? { electedIds: tieChosen } : {}),
+          ...(tiePresident ? { presidentId: tiePresident } : {}),
+          justification: tieJustification,
+          acta: tieActa,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setTieMsg(data.issues?.[0] ?? data.error ?? "No se pudo resolver el empate.");
+        return;
+      }
+      await loadResults();
+      onRefresh();
+    } catch {
+      setTieMsg("No pudimos conectar con el servidor. Inténtalo de nuevo.");
+    }
+  };
 
   // Ejecutar escrutinio
   const handleRunTally = async () => {
@@ -100,7 +166,7 @@ export function ResultsPanel({
       const res = await fetch("/api/escrutinio", { method: "POST" });
       const data = await res.json();
       if (res.ok) {
-        setTallyData(data);
+        await loadResults();
         onRefresh();
       } else {
         setErrorMsg(data.error || "No se pudo realizar el escrutinio.");
@@ -142,7 +208,14 @@ export function ResultsPanel({
   // Tramitar Vacante Presidencial (Arts. 99–102)
   const handleProcessPresidentialVacancy = async () => {
     if (!vacancyJustification.trim()) {
-      alert("Introduce la justificación reglamentaria del cese o dimisión.");
+      setVacancyMsg({ success: false, message: "Escribe la justificación del cese o la renuncia." });
+      return;
+    }
+    if (vacancyReason === "SEPARACION_DISCIPLINARIA" && (!councilAttendance || !councilInFavor)) {
+      setVacancyMsg({
+        success: false,
+        message: "La separación disciplinaria exige la asistencia y los votos a favor del Consejo según el acta.",
+      });
       return;
     }
     setIsProcessingVacancy(true);
@@ -156,8 +229,9 @@ export function ResultsPanel({
           reason: vacancyReason,
           justification: vacancyJustification,
           successorCandidateId: successorCandidateId || undefined,
-          councilAttendancePct: 90, // Por defecto >85 %
-          councilVotesInFavorPct: 100, // Por defecto unánime
+          // Datos reales del acta del Consejo; obligatorios en la separación disciplinaria.
+          councilAttendancePct: councilAttendance ? Number(councilAttendance) : undefined,
+          councilVotesInFavorPct: councilInFavor ? Number(councilInFavor) : undefined,
         }),
       });
       const data = await res.json();
@@ -285,6 +359,18 @@ export function ResultsPanel({
     );
   }
 
+  // Sin escrutinio todavía
+  if (!tallyData && !(isAuthority && status === "CERRADA")) {
+    return (
+      <div className="mx-auto max-w-2xl rounded-2xl border border-feu-green-300 bg-white p-10 text-center shadow-md">
+        <h2 className="text-2xl font-bold text-feu-green-900">Resultados aún no disponibles</h2>
+        <p className="mt-2 text-sm text-gray-600">
+          Los resultados se publican cuando la Comisión Electoral cierra la votación y realiza el escrutinio.
+        </p>
+      </div>
+    );
+  }
+
   // Si la votación está CERRADA pero no se ha escrutado
   if (!tallyData) {
     return (
@@ -307,7 +393,11 @@ export function ResultsPanel({
 
         <div className="mt-6">
           <button
-            onClick={handleRunTally}
+            onClick={() => {
+              if (window.confirm("¿Realizar el escrutinio? Se hace una sola vez y fija el resultado oficial.")) {
+                handleRunTally();
+              }
+            }}
             disabled={isTallying}
             className="inline-flex items-center justify-center gap-2 rounded-xl bg-feu-green-700 px-8 py-3.5 text-base font-bold text-white shadow-md hover:bg-feu-green-800 disabled:opacity-50 transition-colors"
           >
@@ -371,22 +461,120 @@ export function ResultsPanel({
         </div>
       </div>
 
-      {/* Alerta de Empate (Art. 40) */}
-      {tally.tie && (
-        <div className="rounded-xl border border-red-300 bg-red-50 p-6 text-red-950 shadow-sm">
-          <div className="flex items-center gap-3">
-            <AlertTriangle className="h-8 w-8 text-red-600 shrink-0" strokeWidth={2} />
+      {/* Empate: lo resuelve la Comisión con acta (decisión F2) */}
+      {status === "EMPATE" && tally.tie && (
+        <div className="rounded-xl border border-red-300 bg-red-50 p-6 text-red-950 shadow-sm space-y-3">
+          <div className="flex items-start gap-3">
+            <AlertTriangle className="h-7 w-7 text-red-600 shrink-0" strokeWidth={2} />
             <div>
               <h3 className="font-bold text-lg">
-                Empate Reglamentario Detectado (Art. 40 del ABC)
+                {tally.tie.type === "PRESIDENT" ? "Empate en la presidencia" : "Empate en el último puesto del Secretariado"}
               </h3>
-              <p className="text-xs mt-1">
-                {tally.tie.type === "PRESIDENT"
-                  ? "Empate en votos presidenciales. Prohibido desempatar por orden alfabético. Debe realizarse una Segunda Vuelta."
-                  : "Empate en el corte del puesto de miembro. Se contabilizan votos de presidente; de persistir, se convoca Segunda Vuelta."}
+              <p className="text-sm mt-1">
+                Los votos a presidente no resolvieron el empate. La Comisión Electoral decide entre los empatados y deja
+                constancia en acta. Los resultados no se proclaman hasta entonces.
+              </p>
+              <p className="text-sm mt-1">
+                Empatados:{" "}
+                <strong>
+                  {tally.tie.candidateIds
+                    .map((id) => tally.totals.find((t) => t.candidateId === id)?.fullName ?? id)
+                    .join(", ")}
+                </strong>
               </p>
             </div>
           </div>
+
+          {isAuthority && (
+            <div className="rounded-lg border border-red-200 bg-white p-4 space-y-3 text-gray-900">
+              {tally.tie.type === "CUT" && (
+                <fieldset>
+                  <legend className="text-sm font-semibold">Candidatos que ocupan los puestos restantes</legend>
+                  <div className="mt-2 space-y-1">
+                    {tally.tie.candidateIds.map((id) => (
+                      <label key={id} className="flex items-center gap-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={tieChosen.includes(id)}
+                          onChange={(e) =>
+                            setTieChosen(e.target.checked ? [...tieChosen, id] : tieChosen.filter((x) => x !== id))
+                          }
+                          className="h-5 w-5"
+                        />
+                        {tally.totals.find((t) => t.candidateId === id)?.fullName ?? id}
+                      </label>
+                    ))}
+                  </div>
+                </fieldset>
+              )}
+              <div>
+                <label htmlFor="tie-president" className="text-sm font-semibold block mb-1">
+                  Presidente{tally.tie.type === "CUT" ? " (solo si vuelve a haber empate en presidencia)" : ""}
+                </label>
+                <select
+                  id="tie-president"
+                  value={tiePresident}
+                  onChange={(e) => setTiePresident(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 p-2 text-sm"
+                >
+                  <option value="">Elegir</option>
+                  {(tally.tie.type === "PRESIDENT" ? tally.tie.candidateIds : tally.totals.map((t) => t.candidateId)).map(
+                    (id) => (
+                      <option key={id} value={id}>
+                        {tally.totals.find((t) => t.candidateId === id)?.fullName ?? id}
+                      </option>
+                    ),
+                  )}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="tie-justification" className="text-sm font-semibold block mb-1">
+                  Motivo de la decisión
+                </label>
+                <textarea
+                  id="tie-justification"
+                  rows={2}
+                  value={tieJustification}
+                  onChange={(e) => setTieJustification(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 p-2 text-sm"
+                />
+              </div>
+              <div>
+                <label htmlFor="tie-acta" className="text-sm font-semibold block mb-1">
+                  Acta de la Comisión
+                </label>
+                <input
+                  id="tie-acta"
+                  value={tieActa}
+                  onChange={(e) => setTieActa(e.target.value)}
+                  placeholder="Número o referencia del acta"
+                  className="w-full rounded-lg border border-gray-300 p-2 text-sm"
+                />
+              </div>
+              {tieMsg && (
+                <p role="alert" className="text-sm font-medium text-red-800">
+                  {tieMsg}
+                </p>
+              )}
+              <button
+                onClick={() => {
+                  if (window.confirm("¿Registrar la decisión de la Comisión y proclamar los resultados?")) {
+                    handleResolveTie();
+                  }
+                }}
+                className="min-h-11 rounded-lg bg-red-700 px-4 py-2 text-sm font-bold text-white hover:bg-red-800"
+              >
+                Registrar decisión y proclamar
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {tieResolution && (
+        <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+          <strong>Empate resuelto por la Comisión Electoral</strong> (acta {tieResolution.acta}):{" "}
+          {tieResolution.justification}
         </div>
       )}
 
@@ -493,6 +681,7 @@ export function ResultsPanel({
       </div>
 
       {/* Designación de Vicepresidente (Art. 67) */}
+      {isAuthority && status === "PROCLAMADA" && (
       <div className="rounded-xl border border-feu-green-300 bg-white p-6 shadow-sm">
         <h3 className="text-lg font-bold text-feu-green-900">
           Designación del Vicepresidente (Art. 67 del ABC)
@@ -525,12 +714,12 @@ export function ResultsPanel({
         </div>
 
         {vpDesignationMsg && (
-          <p className="mt-3 flex items-center gap-1.5 text-sm font-semibold text-emerald-800">
-            <Check className="h-4 w-4" strokeWidth={2} />
-            <span>{vpDesignationMsg}</span>
+          <p role="status" className="mt-3 text-sm font-semibold text-gray-800">
+            {vpDesignationMsg}
           </p>
         )}
       </div>
+      )}
 
       {/* MÓDULO DE GESTIÓN DE VACANTES Y SUCESIÓN (Arts. 99–102) */}
       {composition && (
@@ -544,6 +733,7 @@ export function ResultsPanel({
                 Última actualización: {new Date(composition.updatedAt).toLocaleString("es-ES")} ({composition.reason})
               </p>
             </div>
+            {isAuthority && (
             <button
               onClick={() => setShowVacancyForm(!showVacancyForm)}
               className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-indigo-50 px-3.5 py-2 text-xs font-bold text-indigo-900 hover:bg-indigo-100"
@@ -560,6 +750,7 @@ export function ResultsPanel({
                 </>
               )}
             </button>
+            )}
           </div>
 
           {/* Cuadro de Composición Actual */}
@@ -638,6 +829,39 @@ export function ResultsPanel({
                   </select>
                 </div>
               </div>
+
+              {vacancyReason === "SEPARACION_DISCIPLINARIA" && (
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div>
+                    <label htmlFor="council-attendance" className="text-xs font-semibold text-gray-700 block mb-1">
+                      Asistencia al Consejo (%)
+                    </label>
+                    <input
+                      id="council-attendance"
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={councilAttendance}
+                      onChange={(e) => setCouncilAttendance(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 bg-white p-2 text-sm text-gray-900"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="council-favor" className="text-xs font-semibold text-gray-700 block mb-1">
+                      Votos a favor en el Consejo (%)
+                    </label>
+                    <input
+                      id="council-favor"
+                      type="number"
+                      min={0}
+                      max={100}
+                      value={councilInFavor}
+                      onChange={(e) => setCouncilInFavor(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 bg-white p-2 text-sm text-gray-900"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="text-xs font-semibold text-gray-700 block mb-1">
@@ -748,6 +972,7 @@ export function ResultsPanel({
       )}
 
       {/* Acta Formal de Escrutinio y Proclamación para Imprimir */}
+      {canProclaim && (
       <div className="rounded-xl border border-feu-green-300 bg-white p-8 shadow-sm print:m-0 print:border-none print:p-0">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-gray-200 pb-4 gap-3">
           <div className="flex items-center gap-3">
@@ -817,6 +1042,7 @@ export function ResultsPanel({
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

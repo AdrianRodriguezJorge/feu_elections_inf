@@ -3,8 +3,13 @@
 import { useState } from "react";
 import { Play, Square, Check, AlertTriangle, Lock } from "lucide-react";
 import { ProcessCandidateSnapshot } from "@/domain/candidates";
-import { ProcessConfig } from "@/domain/config";
 import { BiographyModal } from "./BiographyModal";
+
+export interface QuorumInfo {
+  basePct: number;
+  effectivePct: number;
+  exception: { pct: number; justification: string; acta: string; appliedBy: string; appliedAt: string } | null;
+}
 
 interface AdminPanelProps {
   summary: {
@@ -21,7 +26,8 @@ interface AdminPanelProps {
     requirementMet: boolean;
     candidacyHash: string;
   };
-  config: ProcessConfig;
+  quorum: QuorumInfo;
+  role: string;
   candidates: ProcessCandidateSnapshot[];
   commission: Array<{ ci: string; name: string; office: string; brigadeCode: string }>;
   onRefresh: () => void;
@@ -29,7 +35,8 @@ interface AdminPanelProps {
 
 export function AdminPanel({
   summary,
-  config,
+  quorum,
+  role,
   candidates,
   commission,
   onRefresh,
@@ -43,9 +50,12 @@ export function AdminPanel({
   const [selectedBioCandidate, setSelectedBioCandidate] = useState<ProcessCandidateSnapshot | null>(null);
 
   // Estado local para configuración
-  const [minPct, setMinPct] = useState(config.minParticipationPercentage);
-  const [seatsMargin, setSeatsMargin] = useState(config.candidateSeatsMargin);
-  const [configMsg, setConfigMsg] = useState<string | null>(null);
+  // Excepción de quórum (solo Administrador, 80-85 %, con acta)
+  const [exceptionPct, setExceptionPct] = useState(String(quorum.effectivePct));
+  const [exceptionJustification, setExceptionJustification] = useState("");
+  const [exceptionActa, setExceptionActa] = useState("");
+  const [quorumMsg, setQuorumMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const canAdjustQuorum = role === "ADMIN" && ["CONVOCADO", "ABIERTA", "CERRADA"].includes(summary.status);
 
   // Acciones sobre el proceso
   const [actionError, setActionError] = useState<string | null>(null);
@@ -94,26 +104,27 @@ export function AdminPanel({
     }
   };
 
-  // Guardar configuración dinámica
-  const handleSaveConfig = async () => {
+  const handleSaveQuorum = async () => {
+    setQuorumMsg(null);
+    const pct = Number(exceptionPct);
+    if (!Number.isFinite(pct) || pct < 80 || pct > 85) {
+      setQuorumMsg({ ok: false, text: "El quórum debe estar entre 80 % y 85 %." });
+      return;
+    }
+    if (!window.confirm(`¿Fijar el quórum en más del ${pct} %? Quedará registrado en el acta y en la auditoría.`)) {
+      return;
+    }
     try {
-      const res = await fetch("/api/eleccion/config", {
+      const res = await fetch("/api/eleccion/quorum", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          minParticipationPercentage: Number(minPct),
-          candidateSeatsMargin: Number(seatsMargin),
-        }),
+        body: JSON.stringify({ pct, justification: exceptionJustification, acta: exceptionActa }),
       });
       const data = await res.json();
-      if (res.ok) {
-        setConfigMsg("Configuración guardada exitosamente.");
-        onRefresh();
-      } else {
-        setConfigMsg(data.errors?.[0] || "Error guardando configuración.");
-      }
+      setQuorumMsg({ ok: res.ok, text: res.ok ? data.message : (data.issues?.[0] ?? data.error ?? "No se pudo guardar.") });
+      if (res.ok) onRefresh();
     } catch {
-      setConfigMsg("Error de conexión al guardar configuración.");
+      setQuorumMsg({ ok: false, text: "No pudimos conectar con el servidor. Inténtalo de nuevo." });
     }
   };
 
@@ -132,7 +143,7 @@ export function AdminPanel({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           csv: csvInput,
-          minParticipationPercentage: minPct,
+          minParticipationPercentage: quorum.effectivePct,
         }),
       });
 
@@ -368,65 +379,79 @@ export function AdminPanel({
           )}
         </div>
 
-        {/* Configuración Dinámica */}
+        {/* Quórum (Art. 38): 85 % por defecto; excepción solo del Administrador */}
         <div className="rounded-xl border border-feu-green-300 bg-white p-5 shadow-sm">
-          <h3 className="text-lg font-bold text-feu-green-900">
-            Parámetros del Proceso Electoral
-          </h3>
-          <p className="mt-1 text-xs text-gray-600">
-            Ajusta los umbrales reglamentarios para esta convocatoria.
+          <h3 className="text-lg font-bold text-feu-green-900">Quórum de la elección</h3>
+          <p className="text-sm text-gray-700 mt-1">
+            La elección es válida con <strong>más del {quorum.effectivePct} %</strong> de participación.
+          </p>
+          {quorum.exception ? (
+            <p className="mt-2 rounded-lg bg-amber-50 border border-amber-200 p-2 text-xs text-amber-950">
+              Excepción aprobada (acta {quorum.exception.acta}): {quorum.exception.justification}. La regla general del
+              Art. 38 para Facultad es más del {quorum.basePct} %.
+            </p>
+          ) : (
+            <p className="mt-2 text-xs text-gray-600">Regla general del Art. 38 para Facultad.</p>
+          )}
+          <p className="mt-2 text-xs text-gray-600">
+            Puestos a elegir: {summary.seats} (candidatos − 2, Art. 59). No se modifica.
           </p>
 
-          <div className="mt-4 space-y-3">
-            <div>
-              <label htmlFor="minPctInput" className="text-xs font-semibold text-feu-green-900">
-                Porcentaje de Participación Mínima Requerida (%):
-              </label>
-              <input
-                id="minPctInput"
-                type="number"
-                min={50}
-                max={100}
-                value={minPct}
-                onChange={(e) => setMinPct(Number(e.target.value))}
-                className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm text-gray-900 focus:border-feu-green-700 focus:outline-hidden"
-              />
-              <span className="text-[11px] text-gray-500">
-                Por defecto según Art. 38 del ABC: &gt;85 %
-              </span>
-            </div>
-
-            <div>
-              <label htmlFor="seatsMarginInput" className="text-xs font-semibold text-feu-green-900">
-                Margen de Escaños (N = Candidatos - Margen):
-              </label>
-              <input
-                id="seatsMarginInput"
-                type="number"
-                min={1}
-                max={5}
-                value={seatsMargin}
-                onChange={(e) => setSeatsMargin(Number(e.target.value))}
-                className="mt-1 w-full rounded-lg border border-gray-300 p-2 text-sm text-gray-900 focus:border-feu-green-700 focus:outline-hidden"
-              />
-              <span className="text-[11px] text-gray-500">
-                Por defecto según Art. 59: N = candidatos - 2 (11 candidatos → 9 puestos)
-              </span>
-            </div>
-
-            <button
-              onClick={handleSaveConfig}
-              className="mt-2 w-full rounded-lg bg-feu-green-700 py-2 text-xs font-bold text-white shadow-xs hover:bg-feu-green-800"
-            >
-              Guardar Configuración
-            </button>
-
-            {configMsg && (
-              <p className="text-center text-xs font-medium text-feu-green-800">
-                {configMsg}
+          {canAdjustQuorum && (
+            <div className="mt-4 space-y-2 border-t border-gray-100 pt-3">
+              <p className="text-xs text-gray-600">
+                Solo si se aprobó una excepción. Se puede aplicar hasta antes del escrutinio, entre 80 % y 85 %. 85 %
+                restablece la regla general.
               </p>
-            )}
-          </div>
+              <label htmlFor="quorum-pct" className="text-xs font-semibold text-gray-700 block">
+                Quórum (%)
+              </label>
+              <input
+                id="quorum-pct"
+                type="number"
+                min={80}
+                max={85}
+                step={0.5}
+                value={exceptionPct}
+                onChange={(e) => setExceptionPct(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 p-2 text-sm text-gray-900"
+              />
+              <label htmlFor="quorum-justification" className="text-xs font-semibold text-gray-700 block">
+                Motivo
+              </label>
+              <textarea
+                id="quorum-justification"
+                rows={2}
+                value={exceptionJustification}
+                onChange={(e) => setExceptionJustification(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 p-2 text-sm text-gray-900"
+              />
+              <label htmlFor="quorum-acta" className="text-xs font-semibold text-gray-700 block">
+                Acta o resolución que lo aprueba
+              </label>
+              <input
+                id="quorum-acta"
+                value={exceptionActa}
+                onChange={(e) => setExceptionActa(e.target.value)}
+                className="w-full rounded-lg border border-gray-300 p-2 text-sm text-gray-900"
+              />
+              <button
+                type="button"
+                onClick={handleSaveQuorum}
+                className="min-h-11 w-full rounded-lg bg-[#136D54] px-4 py-2 text-sm font-bold text-white hover:bg-[#0C4B39]"
+              >
+                Aplicar quórum
+              </button>
+              {quorumMsg && (
+                <p
+                  role={quorumMsg.ok ? "status" : "alert"}
+                  className={`text-sm font-medium ${quorumMsg.ok ? "text-emerald-800" : "text-red-800"}`}
+                >
+                  {quorumMsg.text}
+                </p>
+              )}
+            </div>
+          )}
         </div>
       </div>
 

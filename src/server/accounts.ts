@@ -20,7 +20,7 @@ import { validateCI } from "@/domain/ci";
 import type { ProcessStatus, UserRole } from "@/domain/types";
 
 /** Estados en los que el elector puede activar su cuenta o la Comisión restablecerla. */
-export const ACTIVATION_WINDOW: readonly ProcessStatus[] = ["BORRADOR", "CONVOCADO", "LISTO"];
+export const ACTIVATION_WINDOW: readonly ProcessStatus[] = ["CONVOCADO"];
 
 export interface LoginAccount {
   id: string;

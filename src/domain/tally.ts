@@ -43,8 +43,18 @@ export interface TallyResult {
   elected: string[];
   /** Presidente, si se pudo determinar sin empate. */
   presidentId: string | null;
-  /** Empaque detectado, si lo hay. Obliga a segunda vuelta. */
+  /** Empate detectado, si lo hay. Lo resuelve la Comisión (decisión F2). */
   tie: TallyTie | null;
+  /** Decisión de la Comisión que resolvió un empate, si la hubo. */
+  resolution?: TieResolutionRecord;
+}
+
+/** Registro de la decisión de la Comisión sobre un empate. */
+export interface TieResolutionRecord {
+  type: TieType;
+  tiedIds: string[];
+  chosenIds: string[];
+  presidentId: string;
 }
 
 /**
@@ -113,8 +123,8 @@ export function tally(
   if (
     lastElected &&
     firstNotElected &&
-    lastElected.memberVotes === firstNotElected.memberVotes &&
-    lastElected.memberVotes > 0
+    // También a cero votos: el orden de boleta (alfabético) nunca decide (Art. 40).
+    lastElected.memberVotes === firstNotElected.memberVotes
   ) {
     if (lastElected.presidentVotes > firstNotElected.presidentVotes) {
       // Se resuelve con los votos de presidente (Art. 40): el último electo
@@ -223,4 +233,85 @@ export function recommendSuccessor(
     return currentVicePresidentId;
   }
   return recommendVicePresident(result);
+}
+
+export interface TieChoice {
+  /** Para empate en el corte: candidatos empatados que ocupan los puestos restantes. */
+  electedIds?: string[];
+  /** Presidente elegido entre los empatados (o entre los electos si vuelve a haber empate). */
+  presidentId?: string;
+}
+
+export type TieResolutionOutcome = { ok: true; result: TallyResult } | { ok: false; error: string };
+
+/**
+ * Aplica la decisión de la Comisión sobre un empate que los votos de presidente
+ * no resolvieron (decisión F2 del usuario; se aparta del Art. 40 y queda en acta).
+ *
+ * La Comisión solo puede elegir entre los candidatos empatados.
+ *
+ * @param result escrutinio con empate
+ * @param seats puestos a elegir
+ * @param choice decisión de la Comisión
+ */
+export function resolveTie(result: TallyResult, seats: number, choice: TieChoice): TieResolutionOutcome {
+  const tie = result.tie;
+  if (!tie) return { ok: false, error: "El escrutinio no tiene ningún empate que resolver." };
+
+  let elected: string[];
+  let chosenIds: string[] = [];
+
+  if (tie.type === "CUT") {
+    const tied = new Set(tie.candidateIds);
+    const ref = result.totals.find((t) => tied.has(t.candidateId));
+    if (!ref) return { ok: false, error: "Empate sin candidatos." };
+    const sure = result.totals
+      .filter(
+        (t) =>
+          !tied.has(t.candidateId) &&
+          (t.memberVotes > ref.memberVotes ||
+            (t.memberVotes === ref.memberVotes && t.presidentVotes > ref.presidentVotes)),
+      )
+      .map((t) => t.candidateId);
+    const remaining = seats - sure.length;
+    const chosen = Array.from(new Set(choice.electedIds ?? []));
+    if (chosen.length !== remaining || chosen.some((id) => !tied.has(id))) {
+      return {
+        ok: false,
+        error: `Debes elegir exactamente ${remaining} candidato(s) entre los empatados para completar los ${seats} puestos.`,
+      };
+    }
+    chosenIds = chosen;
+    const electedSet = new Set([...sure, ...chosen]);
+    elected = result.totals.filter((t) => electedSet.has(t.candidateId)).map((t) => t.candidateId);
+  } else {
+    elected = result.elected;
+  }
+
+  const electedTotals = result.totals.filter((t) => elected.includes(t.candidateId));
+  const maxPresident = electedTotals.reduce((m, t) => Math.max(m, t.presidentVotes), -1);
+  const presidentPool =
+    tie.type === "PRESIDENT"
+      ? tie.candidateIds
+      : electedTotals.filter((t) => t.presidentVotes === maxPresident).map((t) => t.candidateId);
+
+  let presidentId: string;
+  if (presidentPool.length === 1 && !choice.presidentId) {
+    presidentId = presidentPool[0]!;
+  } else if (choice.presidentId && presidentPool.includes(choice.presidentId)) {
+    presidentId = choice.presidentId;
+  } else {
+    return { ok: false, error: "Elige al presidente entre los candidatos empatados en votos de presidente." };
+  }
+
+  return {
+    ok: true,
+    result: {
+      totals: result.totals,
+      elected,
+      presidentId,
+      tie: null,
+      resolution: { type: tie.type, tiedIds: [...tie.candidateIds], chosenIds, presidentId },
+    },
+  };
 }
