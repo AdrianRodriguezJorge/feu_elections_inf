@@ -1,37 +1,31 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateTotpToken } from "@/domain/auth";
-import { postgresDb } from "@/server/db-postgres";
+import { findLoginAccount } from "@/server/accounts";
 
-const DEMO_MFA_SECRET = "0123456789abcdef0123456789abcdef01234567";
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
 /**
- * Consulta de código TOTP activo para demostración y verificación (Item 7.2).
+ * Código TOTP vigente de una autoridad, SOLO en desarrollo local.
+ *
+ * Ayuda interina para pruebas manuales mientras se decide el enrolamiento con
+ * aplicación autenticadora (pendiente). En producción esta ruta no existe (404).
  */
 export async function GET(request: NextRequest) {
-  const { searchParams } = new URL(request.url);
-  const ci = searchParams.get("ci")?.trim();
+  if (process.env.NODE_ENV !== "development" || !LOCAL_HOSTS.has(request.nextUrl.hostname)) {
+    return new NextResponse(null, { status: 404 });
+  }
 
-  let secret = DEMO_MFA_SECRET;
-  if (ci) {
-    try {
-      const user = await postgresDb.getUserByCi(ci);
-      if (user?.mfaSecret) {
-        secret = user.mfaSecret;
-      }
-    } catch {
-      // Ignorar error de consulta y usar DEMO_MFA_SECRET
-    }
+  const identifier = request.nextUrl.searchParams.get("id")?.trim() ?? "";
+  const lookup = await findLoginAccount(identifier);
+  const secret = lookup.status === "ok" ? lookup.account.mfaSecret : null;
+  if (!secret) {
+    return NextResponse.json({ ok: false, error: "Esa cuenta no tiene segundo factor configurado." }, { status: 404 });
   }
 
   const now = Date.now();
-  const token = generateTotpToken(secret, now);
-  const secondsRemaining = 30 - (Math.floor(now / 1000) % 30);
-
   return NextResponse.json({
     ok: true,
-    token,
-    secondsRemaining,
-    stepSeconds: 30,
-    mfaSecretPreview: secret.slice(0, 10) + "...",
+    token: generateTotpToken(secret, now),
+    secondsRemaining: 30 - (Math.floor(now / 1000) % 30),
   });
 }

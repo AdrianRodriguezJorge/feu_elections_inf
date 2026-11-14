@@ -10,7 +10,7 @@
  *  - Immutabilidad garantizada por triggers PL/pgSQL (Art. 66 / RGF-33).
  */
 
-import { createHash } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { buildCandidacySnapshot, CandidateInput, ProcessCandidateSnapshot } from "@/domain/candidates";
 import { DEFAULT_PROCESS_CONFIG, ProcessConfig } from "@/domain/config";
 import { PadronRecord } from "@/domain/padron";
@@ -20,7 +20,13 @@ import { tally, TallyResult } from "@/domain/tally";
 import { BallotSelection, ProcessStatus, UserRole } from "@/domain/types";
 import { validateBallot } from "@/domain/ballot";
 import { SecretariatComposition } from "@/domain/vacancies";
-import { appendAuditEntry, AuditLogEntry, createGenesisAuditEntry, verifyAuditChainIntegrity } from "@/domain/audit";
+import {
+  appendAuditEntry,
+  AuditEventType,
+  AuditLogEntry,
+  createGenesisAuditEntry,
+  verifyAuditChainIntegrity,
+} from "@/domain/audit";
 import { postgresDb } from "./db-postgres";
 
 export interface StoredBallot {
@@ -37,7 +43,12 @@ export interface VoterParticipation {
   brigadeCode: string;
   hasVoted: boolean;
   votedAt?: string | undefined;
-  receiptHash?: string | undefined;
+}
+
+/** Autor de una acción, tomado de la sesión. */
+export interface SessionActor {
+  ci: string;
+  role: UserRole;
 }
 
 export interface CommissionMember {
@@ -298,34 +309,26 @@ class ElectionStore {
       }
     }
 
-    // 3. Generar comprobante anónimo único (receiptHash)
-    const castAt = new Date().toISOString();
-    const entropy = Math.random().toString(36).substring(2);
-    const receiptHash = createHash("sha256")
-      .update(`${castAt}-${entropy}-${ballotStatus}`)
-      .digest("hex");
+    // 3. Comprobante anónimo de alta entropía (CSPRNG).
+    const receiptHash = randomBytes(32).toString("hex");
 
-    // 4. Estructurar la boleta para la urna ciega (sin voterCi)
+    // Sello de la boleta truncado al día: una hora exacta permitiría cruzarla con
+    // `participations.castAt` y descubrir quién la emitió (INV-04).
+    const castAt = new Date().toISOString().slice(0, 10) + "T00:00:00.000Z";
+
+    // 4. Boleta para la urna ciega: id aleatorio (no ordenable), sin identidad.
+    const selectionsToStore = ballotStatus === "VALIDA" ? [...selections] : [];
     const storedBallot: StoredBallot = {
-      id: "bal-" + (this.ballots.length + 1),
+      id: randomUUID(),
       status: ballotStatus,
-      selections: ballotStatus === "VALIDA" ? [...selections] : [],
+      selections: selectionsToStore,
       castAt,
       receiptHash,
     };
 
-    // 5. Estructurar el evento de auditoría WORM
-    const auditEntry = appendAuditEntry(
-      this.auditLog,
-      voterCi,
-      role,
-      "BOLETA_EMITIDA",
-      {
-        status: ballotStatus,
-        receiptHash,
-      },
-      castAt,
-    );
+    // 5. Evento de auditoría SIN identidad, SIN comprobante y SIN contenido.
+    // Solo deja constancia de que se depositó una boleta.
+    const auditEntry = appendAuditEntry(this.auditLog, "ANONIMO", "VOTER", "BOLETA_EMITIDA", {});
 
     // 6. Transacción ACID atómica en PostgreSQL (INV-04)
     try {
@@ -339,8 +342,7 @@ class ElectionStore {
     this.ballots.push(storedBallot);
     if (participation) {
       participation.hasVoted = true;
-      participation.votedAt = castAt;
-      participation.receiptHash = receiptHash;
+      participation.votedAt = new Date().toISOString();
     }
     this.auditLog.push(auditEntry);
 
@@ -348,35 +350,18 @@ class ElectionStore {
   }
 
   /**
-   * Consulta una boleta inmutable de la urna a partir de su comprobante (INV-04).
-   * La urna devuelve el contenido sellado de la boleta sin conocer la identidad del votante.
+   * Verifica que un comprobante corresponda a una boleta depositada en la urna.
+   *
+   * Solo confirma la inclusión: no devuelve el contenido ni el estado de la
+   * boleta, para que el comprobante no sirva para demostrar a un tercero cómo
+   * se votó (receipt-freeness).
    */
-  public getBallotByReceipt(receiptHash: string) {
+  public hasReceipt(receiptHash: string): boolean {
     const cleanHash = receiptHash.trim().toLowerCase();
-    const ballot = this.ballots.find((b) => b.receiptHash.toLowerCase() === cleanHash);
-    if (!ballot) return null;
-
-    const candidatesMap = new Map(this.snapshot.map((c) => [c.candidateId, c]));
-    const selectionsEnriched = ballot.selections.map((s) => {
-      const cand = candidatesMap.get(s.processCandidateId);
-      return {
-        candidateId: s.processCandidateId,
-        candidateName: cand?.fullName ?? s.processCandidateId,
-        brigadeCode: cand?.brigadeCode ?? "",
-        member: s.member,
-        president: s.president,
-      };
-    });
-
-    return {
-      receiptHash: ballot.receiptHash,
-      status: ballot.status,
-      castAt: ballot.castAt,
-      selections: selectionsEnriched,
-    };
+    return this.ballots.some((b) => b.receiptHash.toLowerCase() === cleanHash);
   }
 
-  public async runTally(): Promise<{
+  public async runTally(actor: SessionActor): Promise<{
     ok: boolean;
     tallyResult: TallyResult;
     quorum: QuorumResult;
@@ -410,7 +395,7 @@ class ElectionStore {
     }
 
     // Registro inmutable en la cadena WORM (Item 7.3)
-    const auditEntry = appendAuditEntry(this.auditLog, "COMMISSION", "COMMISSION", "ESCRUTINIO_REALIZADO", {
+    const auditEntry = appendAuditEntry(this.auditLog, actor.ci, actor.role, "ESCRUTINIO_REALIZADO", {
       presidentId: result.presidentId,
       validBallots: validBallots.length,
       annulledBallots: annulledBallots.length,
@@ -434,7 +419,11 @@ class ElectionStore {
     return { ok: true, tallyResult: result, quorum };
   }
 
-  public async saveCompositionState(composition: SecretariatComposition, vpId?: string | null) {
+  public async saveCompositionState(
+    actor: SessionActor,
+    composition: SecretariatComposition,
+    vpId?: string | null,
+  ) {
     await this.ensureReady();
     this.composition = composition;
     if (vpId) {
@@ -443,8 +432,8 @@ class ElectionStore {
 
     const auditEntry = appendAuditEntry(
       this.auditLog,
-      "COMMISSION",
-      "COMMISSION",
+      actor.ci,
+      actor.role,
       "COMPOSICION_SECRETARIADO_ACTUALIZADA",
       {
         version: composition.version,
@@ -457,10 +446,30 @@ class ElectionStore {
     await postgresDb.appendAuditEntryDirect(auditEntry);
   }
 
-  public async setStatus(newStatus: ProcessStatus) {
+  public async setStatus(newStatus: ProcessStatus, actor: SessionActor) {
     await this.ensureReady();
+    const previous = this.status;
     this.status = newStatus;
     await postgresDb.setStatus(newStatus);
+
+    const eventType: AuditEventType =
+      newStatus === "ABIERTA" ? "VOTACION_ABIERTA" : newStatus === "CERRADA" ? "VOTACION_CERRADA" : "CONFIGURACION_MODIFICADA";
+    await this.recordAudit(actor.ci, actor.role, eventType, { from: previous, to: newStatus });
+  }
+
+  /**
+   * Añade un evento a la cadena de auditoría y lo persiste.
+   */
+  public async recordAudit(
+    actorCi: string,
+    actorRole: string,
+    eventType: AuditEventType,
+    details: Record<string, unknown>,
+  ): Promise<void> {
+    await this.ensureReady();
+    const entry = appendAuditEntry(this.auditLog, actorCi, actorRole, eventType, details);
+    this.auditLog.push(entry);
+    await postgresDb.appendAuditEntryDirect(entry);
   }
 
   public getAuditStatus() {

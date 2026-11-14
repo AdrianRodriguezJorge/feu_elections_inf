@@ -3,6 +3,8 @@ import { DEFAULT_PROCESS_CONFIG } from "@/domain/config";
 import { importPadronIncremental, PadronRecord } from "@/domain/padron";
 import { prisma } from "@/server/db";
 import { electionStore } from "@/server/election-store";
+import { ACTIVATION_WINDOW } from "@/server/accounts";
+import { requirePermission } from "@/server/guard";
 
 const DEFAULT_BRIGADE_CODES = ["11", "12", "22", "32", "41"];
 
@@ -13,6 +15,9 @@ const inMemoryPadron = new Map<string, PadronRecord>();
  * Consulta el estado actual del padrón y el umbral de votantes requeridos.
  */
 export async function GET(request: NextRequest) {
+  const guard = await requirePermission("IMPORT_PADRON");
+  if (!guard.ok) return guard.response;
+
   const { searchParams } = new URL(request.url);
   const minPct = Number(searchParams.get("minPct")) || DEFAULT_PROCESS_CONFIG.minParticipationPercentage;
 
@@ -46,6 +51,18 @@ export async function GET(request: NextRequest) {
  *  - Reporta en tiempo real los votantes necesarios para cumplir el umbral.
  */
 export async function POST(request: NextRequest) {
+  const guard = await requirePermission("IMPORT_PADRON");
+  if (!guard.ok) return guard.response;
+
+  // El padrón es la base del quórum: queda congelado al abrir la votación.
+  await electionStore.ensureReady();
+  if (!ACTIVATION_WINDOW.includes(electionStore.status)) {
+    return NextResponse.json(
+      { ok: false, error: `El registro de electores está congelado (estado ${electionStore.status}).` },
+      { status: 409 },
+    );
+  }
+
   let csvText = "";
   let minPct = DEFAULT_PROCESS_CONFIG.minParticipationPercentage;
 

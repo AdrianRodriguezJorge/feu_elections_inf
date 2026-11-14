@@ -4,6 +4,7 @@ import {
   ProcessConfig,
   resolveProcessConfig,
 } from "@/domain/config";
+import { requirePermission, requireSession } from "@/server/guard";
 
 // Almacén reactivo de configuración en memoria (con fallback si no hay DB)
 let currentConfig: ProcessConfig = { ...DEFAULT_PROCESS_CONFIG };
@@ -12,6 +13,9 @@ let currentConfig: ProcessConfig = { ...DEFAULT_PROCESS_CONFIG };
  * Consulta la configuración actual del proceso electoral (F3).
  */
 export async function GET() {
+  const guard = await requireSession();
+  if (!guard.ok) return guard.response;
+
   return NextResponse.json({
     ok: true,
     config: currentConfig,
@@ -23,6 +27,9 @@ export async function GET() {
  * Actualiza la configuración del proceso electoral (solo ADMIN).
  */
 export async function POST(request: NextRequest) {
+  const guard = await requirePermission("CONFIGURE_PROCESS");
+  if (!guard.ok) return guard.response;
+
   try {
     const body = (await request.json()) as Partial<ProcessConfig>;
     const resolution = resolveProcessConfig(body);

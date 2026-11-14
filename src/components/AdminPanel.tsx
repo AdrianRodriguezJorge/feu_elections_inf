@@ -48,18 +48,49 @@ export function AdminPanel({
   const [configMsg, setConfigMsg] = useState<string | null>(null);
 
   // Acciones sobre el proceso
-  const handleProcessAction = async (action: "ABRIR" | "CERRAR" | "REINICIAR") => {
+  const [actionError, setActionError] = useState<string | null>(null);
+  const handleProcessAction = async (action: "ABRIR" | "CERRAR") => {
+    setActionError(null);
     try {
       const res = await fetch("/api/eleccion/estado", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action }),
       });
-      if (res.ok) {
-        onRefresh();
+      const data = await res.json();
+      if (!res.ok) {
+        setActionError(data.error || "No se pudo completar la acción.");
+        return;
       }
+      onRefresh();
     } catch {
-      alert("Error ejecutando acción sobre el proceso electoral.");
+      setActionError("No pudimos conectar con el servidor. Inténtalo de nuevo.");
+    }
+  };
+
+  // Restablecer la activación de un elector (antes de abrir la votación)
+  const [resetCi, setResetCi] = useState("");
+  const [resetMsg, setResetMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const handleResetAccount = async () => {
+    setResetMsg(null);
+    if (!/^\d{11}$/.test(resetCi.trim())) {
+      setResetMsg({ ok: false, text: "El carnet de identidad tiene 11 dígitos." });
+      return;
+    }
+    if (!window.confirm(`¿Restablecer la cuenta del carnet ${resetCi.trim()}? El elector tendrá que activarla de nuevo.`)) {
+      return;
+    }
+    try {
+      const res = await fetch("/api/cuenta/restablecer", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ci: resetCi.trim() }),
+      });
+      const data = await res.json();
+      setResetMsg({ ok: res.ok, text: res.ok ? data.message : data.error || "No se pudo restablecer la cuenta." });
+      if (res.ok) setResetCi("");
+    } catch {
+      setResetMsg({ ok: false, text: "No pudimos conectar con el servidor. Inténtalo de nuevo." });
     }
   };
 
@@ -143,9 +174,13 @@ export function AdminPanel({
             </p>
           </div>
           <div className="flex gap-2">
-            {summary.status !== "ABIERTA" && (
+            {(summary.status === "CONVOCADO" || summary.status === "LISTO") && (
               <button
-                onClick={() => handleProcessAction("ABRIR")}
+                onClick={() => {
+                  if (window.confirm("¿Abrir la votación? Los electores podrán votar desde este momento.")) {
+                    handleProcessAction("ABRIR");
+                  }
+                }}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-emerald-800"
               >
                 <Play className="h-3.5 w-3.5" strokeWidth={2} />
@@ -154,7 +189,11 @@ export function AdminPanel({
             )}
             {summary.status === "ABIERTA" && (
               <button
-                onClick={() => handleProcessAction("CERRAR")}
+                onClick={() => {
+                  if (window.confirm("¿Cerrar la votación? No se aceptarán más boletas y no se podrá reabrir.")) {
+                    handleProcessAction("CERRAR");
+                  }
+                }}
                 className="inline-flex items-center gap-1.5 rounded-lg bg-amber-700 px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-amber-800"
               >
                 <Square className="h-3.5 w-3.5" strokeWidth={2} />
@@ -163,6 +202,12 @@ export function AdminPanel({
             )}
           </div>
         </div>
+
+        {actionError && (
+          <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-800">
+            {actionError}
+          </p>
+        )}
 
         {/* Tarjetas de Métricas */}
         <div className="mt-5 grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -230,6 +275,43 @@ export function AdminPanel({
       </div>
 
       {/* Gestión Incremental de la Membresía y Configuración */}
+      {/* Restablecer activación de cuentas (antes de abrir la votación) */}
+      <div className="rounded-xl border border-feu-green-300 bg-white p-5 shadow-sm">
+        <h3 className="text-lg font-bold text-feu-green-900">Restablecer la cuenta de un elector</h3>
+        <p className="text-xs text-gray-600 mt-1">
+          Úsalo si un elector informa que otra persona activó su cuenta. Solo es posible antes de abrir la votación.
+        </p>
+        <div className="mt-3 flex flex-col sm:flex-row gap-2">
+          <label htmlFor="reset-ci" className="sr-only">
+            Carnet de identidad del elector
+          </label>
+          <input
+            id="reset-ci"
+            inputMode="numeric"
+            maxLength={11}
+            value={resetCi}
+            onChange={(e) => setResetCi(e.target.value.replace(/\D/g, ""))}
+            placeholder="Carnet de identidad (11 dígitos)"
+            className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-mono text-gray-900 focus:border-[#136D54] focus:ring-2 focus:ring-[#136D54]/20 focus:outline-hidden"
+          />
+          <button
+            type="button"
+            onClick={handleResetAccount}
+            className="min-h-11 rounded-lg bg-[#136D54] px-4 py-2 text-sm font-bold text-white hover:bg-[#0C4B39]"
+          >
+            Restablecer cuenta
+          </button>
+        </div>
+        {resetMsg && (
+          <p
+            role={resetMsg.ok ? "status" : "alert"}
+            className={`mt-2 text-sm font-medium ${resetMsg.ok ? "text-emerald-800" : "text-red-800"}`}
+          >
+            {resetMsg.text}
+          </p>
+        )}
+      </div>
+
       <div className="grid gap-6 md:grid-cols-2">
         {/* Registro de Electores Incremental */}
         <div className="rounded-xl border border-feu-green-300 bg-white p-5 shadow-sm">

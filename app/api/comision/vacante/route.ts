@@ -5,12 +5,17 @@ import {
   processPresidentialVacancy,
   VacancyReason,
 } from "@/domain/vacancies";
+import { requirePermission } from "@/server/guard";
 
 /**
  * Endpoint para la gestión reglamentaria de vacantes y sucesión en el Secretariado (Arts. 99–102 del ABC de la FEU 2019).
  */
 export async function POST(request: NextRequest) {
+  const guard = await requirePermission("PROCLAIM_RESULTS");
+  if (!guard.ok) return guard.response;
+
   try {
+    await electionStore.ensureReady();
     const body = (await request.json()) as {
       type: "VACANCIA_PRESIDENTE" | "DESIGNAR_NUEVO_VP";
       reason?: VacancyReason;
@@ -52,8 +57,8 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      await electionStore.saveCompositionState(result.composition);
-      await electionStore.setStatus("VACANTE");
+      await electionStore.saveCompositionState(guard.user, result.composition);
+      await electionStore.setStatus("VACANTE", guard.user);
 
       return NextResponse.json({
         ok: true,
@@ -86,10 +91,11 @@ export async function POST(request: NextRequest) {
       }
 
       await electionStore.saveCompositionState(
+        guard.user,
         result.composition,
         result.composition.vicePresident?.candidateId || null,
       );
-      await electionStore.setStatus("FINALIZADA");
+      await electionStore.setStatus("FINALIZADA", guard.user);
 
       return NextResponse.json({
         ok: true,

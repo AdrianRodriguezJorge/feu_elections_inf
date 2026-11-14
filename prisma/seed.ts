@@ -2,14 +2,15 @@ import { PrismaClient, StructureType, ProcessType, ProcessStatus, UserRole as Pr
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { hashPassword } from "../src/domain/auth";
+import { generateMfaSecret, hashPassword } from "../src/domain/auth";
 import { createGenesisAuditEntry } from "../src/domain/audit";
 import { buildCandidacySnapshot, CandidateInput } from "../src/domain/candidates";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const prisma = new PrismaClient();
 
-const DEMO_MFA_SECRET = "0123456789abcdef0123456789abcdef01234567";
+// Cada autoridad recibe su propio secreto TOTP. En desarrollo local el código vigente
+// se consulta en /api/auth/totp/current?id=<nombre o carnet> (no existe en producción).
 
 /** Códigos de brigada reales de la Facultad de Ingeniería Informática. */
 const BRIGADE_CODES = ["11", "12", "22", "32", "41"];
@@ -175,7 +176,7 @@ async function main() {
       email: "adrian@estudiantes.cujae.edu.cu",
       name: "Adrian",
       passwordHash: hashPassword("99091978927"),
-      mfaSecret: DEMO_MFA_SECRET,
+      mfaSecret: generateMfaSecret(),
       role: PrismaUserRole.ADMIN,
       active: true,
     },
@@ -187,7 +188,7 @@ async function main() {
       email: "liz@estudiantes.cujae.edu.cu",
       name: "Liz",
       passwordHash: hashPassword("06091668099"),
-      mfaSecret: DEMO_MFA_SECRET,
+      mfaSecret: generateMfaSecret(),
       role: PrismaUserRole.COMMISSION,
       active: true,
     },
@@ -199,7 +200,7 @@ async function main() {
       email: "revisor@estudiantes.cujae.edu.cu",
       name: "Revisor",
       passwordHash: hashPassword("11111111111"),
-      mfaSecret: DEMO_MFA_SECRET,
+      mfaSecret: generateMfaSecret(),
       role: PrismaUserRole.COMMISSION,
       active: true,
     },
@@ -303,14 +304,16 @@ async function main() {
         ? commissionSecond
         : null;
 
+    // Los electores se siembran SIN activar: cada uno activa su cuenta con su carnet
+    // y elige su contraseña (decisión F1). Las autoridades llegan activadas.
     let userRecord = userMatch;
     if (!userRecord) {
       userRecord = await prisma.user.create({
         data: {
           ci: elector.ci,
-          email: `${elector.ci}@estudiantes.cujae.edu.cu`,
+          email: `${elector.ci}@sin-correo.invalid`,
           name: elector.fullName,
-          passwordHash: hashPassword(elector.ci),
+          passwordHash: null,
           mfaSecret: null,
           role: PrismaUserRole.VOTER,
           active: true,
@@ -409,7 +412,7 @@ async function main() {
   console.log(
     `[SEED] PostgreSQL sembrado exitosamente: ` +
     `${CANDIDATES.length} candidatos, ${seats} puestos, ` +
-    `${allElectors.length} electores en padrón, 4 usuarios persona configurados, ` +
+    `${allElectors.length} electores en padrón (sin activar), 3 autoridades con TOTP propio, ` +
     `cadena WORM con génesis, y triggers PL/pgSQL activos.`,
   );
 }

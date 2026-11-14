@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   appendAuditEntry,
+  canonicalJsonStringify,
   verifyAuditChainIntegrity,
   AuditLogEntry,
 } from "@/domain/audit";
@@ -61,3 +62,15 @@ describe("Registro WORM y Cadena de Auditoría Inmutable (Art. 66 / RGF-33)", ()
   });
 });
 
+
+describe("Serialización canónica tras la ida y vuelta por JSONB (regresión F1)", () => {
+  it("una clave con valor undefined no cambia el hash del evento", () => {
+    const enMemoria = { version: 2, presidentId: "can-03", vicePresidentId: undefined };
+    const trasJsonb = JSON.parse(JSON.stringify(enMemoria)) as Record<string, unknown>;
+    expect(canonicalJsonStringify(enMemoria)).toBe(canonicalJsonStringify(trasJsonb));
+
+    const entry = appendAuditEntry([], "SYSTEM", "ADMIN", "COMPOSICION_SECRETARIADO_ACTUALIZADA", enMemoria);
+    const recargado = { ...entry, details: trasJsonb };
+    expect(verifyAuditChainIntegrity([recargado]).valid).toBe(true);
+  });
+});

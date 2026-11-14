@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { parseAndValidatePadronCSV } from "@/domain/padron";
 import { prisma } from "@/server/db";
+import { requirePermission } from "@/server/guard";
 
 const DEFAULT_BRIGADE_CODES = ["11", "12", "22", "32", "41"];
 
@@ -11,6 +12,9 @@ const DEFAULT_BRIGADE_CODES = ["11", "12", "22", "32", "41"];
  * Comprueba brigadas preexistentes en la base de datos (con fallback a las brigadas de la demo).
  */
 export async function POST(request: NextRequest) {
+  const guard = await requirePermission("IMPORT_PADRON");
+  if (!guard.ok) return guard.response;
+
   let csvText = "";
 
   const contentType = request.headers.get("content-type") ?? "";

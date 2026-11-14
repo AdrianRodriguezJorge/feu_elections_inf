@@ -12,7 +12,7 @@ import {
   LogOut,
   type LucideIcon,
 } from "lucide-react";
-import { AuthUser } from "./AuthModal";
+import type { SessionUser } from "@/lib/session-user";
 
 export type ActiveTab =
   | "LOGIN"
@@ -29,7 +29,7 @@ interface HeaderProps {
   status: string;
   totalVotes: number;
   totalEligible: number;
-  currentUser?: AuthUser | null;
+  currentUser?: SessionUser | null;
   onOpenAuth?: () => void;
   onLogout?: () => void;
 }

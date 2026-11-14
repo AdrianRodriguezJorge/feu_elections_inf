@@ -1,12 +1,17 @@
 import { NextRequest, NextResponse } from "next/server";
 import { electionStore } from "@/server/election-store";
 import { createInitialComposition } from "@/domain/vacancies";
+import { requirePermission } from "@/server/guard";
 
 /**
  * Designación del Vicepresidente por la Comisión Electoral entre los miembros electos (F5, Art. 67).
  */
 export async function POST(request: NextRequest) {
+  const guard = await requirePermission("DESIGNATE_VICE_PRESIDENT");
+  if (!guard.ok) return guard.response;
+
   try {
+    await electionStore.ensureReady();
     const body = (await request.json()) as { candidateId?: string };
     const candidateId = body.candidateId?.trim();
 
@@ -44,9 +49,9 @@ export async function POST(request: NextRequest) {
 
     if (presCandidate && candidate) {
       const comp = createInitialComposition(presCandidate, candidate, otherElected);
-      await electionStore.saveCompositionState(comp, candidateId);
+      await electionStore.saveCompositionState(guard.user, comp, candidateId);
     }
-    await electionStore.setStatus("VP_DESIGNADA");
+    await electionStore.setStatus("VP_DESIGNADA", guard.user);
 
     return NextResponse.json({
       ok: true,

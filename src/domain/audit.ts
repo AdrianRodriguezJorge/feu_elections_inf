@@ -20,6 +20,8 @@ export type AuditEventType =
   | "PADRON_INCREMENTAL_IMPORTADO"
   | "CONFIGURACION_MODIFICADA"
   | "INICIO_SESION"
+  | "CUENTA_ACTIVADA"
+  | "CUENTA_RESTABLECIDA"
   | "COMPOSICION_SECRETARIADO_ACTUALIZADA";
 
 export interface AuditLogEntry {
@@ -44,7 +46,11 @@ export function canonicalJsonStringify(obj: unknown): string {
   if (Array.isArray(obj)) {
     return "[" + obj.map(canonicalJsonStringify).join(",") + "]";
   }
-  const keys = Object.keys(obj as Record<string, unknown>).sort();
+  // Las claves con valor `undefined` no existen en JSON (RFC 8785): se omiten para
+  // que el hash coincida tras la ida y vuelta por la columna JSONB.
+  const keys = Object.keys(obj as Record<string, unknown>)
+    .filter((k) => (obj as Record<string, unknown>)[k] !== undefined)
+    .sort();
   return (
     "{" +
     keys

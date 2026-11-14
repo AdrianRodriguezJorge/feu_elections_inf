@@ -351,8 +351,10 @@ model Ballot {
   receiptHash   String
   /// Motivos de la anulación, cuando el elector confirma una boleta inválida.
   motivos       String[]     @default([])
+  /// Truncado al día de la jornada: una hora exacta permitiría cruzarla con `participations`.
   castAt        DateTime     @default(now())
-  sequence      Int
+  /// Obsoleto (F1): una secuencia correlativa revelaba el orden de emisión. Ya no se escribe.
+  sequence      Int?
   /// Hash de integridad sobre las selecciones.
   integrityHash String
   mode          VotingMode   @default(SECRET)
@@ -360,7 +362,6 @@ model Ballot {
   selections    BallotSelection[]
 
   @@unique([processId, receiptHash])
-  @@unique([processId, sequence])
   @@index([processId, state])
   @@map("ballots")
 }

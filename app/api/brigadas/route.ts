@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/server/db";
+import { requireSession } from "@/server/guard";
 
 const DEFAULT_BRIGADES = [
   { code: "11", name: "Brigada 11 - 4to Año", active: true, memberCount: 2 },
@@ -13,6 +14,9 @@ const DEFAULT_BRIGADES = [
  * Endpoint para consultar las brigadas preexistentes de la Facultad (RGF-34).
  */
 export async function GET() {
+  const guard = await requireSession();
+  if (!guard.ok) return guard.response;
+
   try {
     const dbBrigades = await prisma.brigade.findMany({
       where: { active: true },

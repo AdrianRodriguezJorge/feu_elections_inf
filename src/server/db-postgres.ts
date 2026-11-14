@@ -8,17 +8,17 @@
  *  - WORM Immutability (Art. 66 / RGF-33): Triggers de PostgreSQL en PL/pgSQL bloquean mutaciones o borrados sobre `ballots` y `audit_events`.
  */
 
+import { createHash, randomUUID } from "node:crypto";
 import { prisma } from "@/server/db";
 import { BallotSelection, ProcessStatus, UserRole } from "@/domain/types";
 import { CandidateInput, ProcessCandidateSnapshot } from "@/domain/candidates";
 import { PadronRecord } from "@/domain/padron";
 import { DEFAULT_PROCESS_CONFIG, ProcessConfig } from "@/domain/config";
-import { AuditEventType, AuditLogEntry } from "@/domain/audit";
+import { AuditEventType, AuditLogEntry, canonicalJsonStringify } from "@/domain/audit";
 import { SecretariatComposition } from "@/domain/vacancies";
 import { TallyResult } from "@/domain/tally";
 import { QuorumResult } from "@/domain/quorum";
-import { hashPassword } from "@/domain/auth";
-import { BallotState, StructureType, UserRole as PrismaUserRole } from "@prisma/client";
+import { BallotState, StructureType } from "@prisma/client";
 
 export interface PostgresBallotRow {
   id: string;
@@ -191,7 +191,8 @@ class PostgresDatabase {
     const dbBallots = await prisma.ballot.findMany({
       where: { processId: process.id },
       include: { selections: true },
-      orderBy: { sequence: "asc" },
+      // Orden sin relación con el momento de emisión (INV-04).
+      orderBy: { receiptHash: "asc" },
     });
 
     const ballots: PostgresBallotRow[] = dbBallots.map((b) => ({
@@ -339,23 +340,33 @@ class PostgresDatabase {
         data: {
           processId: process.id,
           membershipId: membership.id,
-          castAt: new Date(ballot.castAt),
           method: "WEB",
         },
       });
 
-      // 4. Depositar en la Urna Ciega (anónima)
-      const ballotCount = await tx.ballot.count({ where: { processId: process.id } });
+      // 4. Depositar en la Urna Ciega (anónima). Identificadores aleatorios y sin
+      // secuencia: nada en la boleta permite ordenarla respecto de las participaciones.
+      const integrityHash = createHash("sha256")
+        .update(
+          canonicalJsonStringify({
+            receiptHash: ballot.receiptHash,
+            state: ballot.status,
+            selections: ballot.selections.map((s) => ({ ...s })),
+          }),
+        )
+        .digest("hex");
+
       await tx.ballot.create({
         data: {
+          id: randomUUID(),
           processId: process.id,
           state: ballot.status === "VALIDA" ? BallotState.VALIDA : BallotState.ANULADA_POR_ELECTOR,
           receiptHash: ballot.receiptHash,
           castAt: new Date(ballot.castAt),
-          sequence: ballotCount + 1,
-          integrityHash: auditEntry.hash,
+          integrityHash,
           selections: {
             create: ballot.selections.map((s) => ({
+              id: randomUUID(),
               processCandidateId: s.processCandidateId,
               member: s.member,
               president: s.president,
@@ -445,35 +456,6 @@ class PostgresDatabase {
     });
   }
 
-  public async saveUser(user: PostgresUserRow): Promise<void> {
-    const roleMapping: Record<string, PrismaUserRole> = {
-      ADMIN: PrismaUserRole.ADMIN,
-      COMMISSION: PrismaUserRole.COMMISSION,
-      VOTER: PrismaUserRole.VOTER,
-      OBSERVER: PrismaUserRole.OBSERVER,
-    };
-
-    await prisma.user.upsert({
-      where: { email: user.email },
-      update: {
-        ci: user.ci,
-        passwordHash: user.passwordHash,
-        mfaSecret: user.mfaSecret,
-        role: roleMapping[user.role] ?? PrismaUserRole.VOTER,
-        active: user.active,
-      },
-      create: {
-        ci: user.ci,
-        email: user.email,
-        name: user.email.split("@")[0] || "Usuario",
-        passwordHash: user.passwordHash,
-        mfaSecret: user.mfaSecret,
-        role: roleMapping[user.role] ?? PrismaUserRole.VOTER,
-        active: user.active,
-      },
-    });
-  }
-
   public async getUserByCi(ci: string): Promise<PostgresUserRow | null> {
     const u = await prisma.user.findFirst({
       where: { ci: ci.trim() },
@@ -482,83 +464,6 @@ class PostgresDatabase {
 
     return {
       ci: u.ci || ci,
-      email: u.email,
-      name: u.name,
-      passwordHash: u.passwordHash || "",
-      mfaSecret: u.mfaSecret,
-      role: u.role as UserRole,
-      active: u.active,
-      createdAt: u.createdAt.toISOString(),
-    };
-  }
-
-  /**
-   * Búsqueda flexible de usuario por nombre registrado o CI (para login sin correo).
-   */
-  public async findUserByUsernameOrCi(identifier: string): Promise<PostgresUserRow | null> {
-    const clean = identifier.trim();
-    if (!clean) return null;
-
-    // 1. Búsqueda exacta por CI
-    let u = await prisma.user.findFirst({
-      where: { ci: clean },
-    });
-
-    // 2. Búsqueda exacta por nombre
-    if (!u) {
-      u = await prisma.user.findFirst({
-        where: { name: { equals: clean, mode: "insensitive" } },
-      });
-    }
-
-    // 3. Búsqueda por subcadena de nombre
-    if (!u) {
-      u = await prisma.user.findFirst({
-        where: { name: { contains: clean, mode: "insensitive" } },
-      });
-    }
-
-    // 4. Si aún no existe en users, buscar en membresía
-    if (!u) {
-      const membership = await prisma.membership.findFirst({
-        where: {
-          OR: [
-            { studentId: clean },
-            { fullName: { contains: clean, mode: "insensitive" } },
-            { firstName: { contains: clean, mode: "insensitive" } },
-          ],
-        },
-      });
-
-      if (membership) {
-        const role =
-          membership.studentId === "02091978927"
-            ? PrismaUserRole.ADMIN
-            : membership.studentId === "02031194852"
-            ? PrismaUserRole.COMMISSION
-            : membership.studentId === "02111574920"
-            ? PrismaUserRole.OBSERVER
-            : PrismaUserRole.VOTER;
-
-        u = await prisma.user.upsert({
-          where: { ci: membership.studentId },
-          update: { name: membership.fullName },
-          create: {
-            ci: membership.studentId,
-            email: `${membership.studentId}@estudiantes.cujae.edu.cu`,
-            name: membership.fullName,
-            passwordHash: hashPassword(membership.studentId),
-            role,
-            active: true,
-          },
-        });
-      }
-    }
-
-    if (!u) return null;
-
-    return {
-      ci: u.ci || clean,
       email: u.email,
       name: u.name,
       passwordHash: u.passwordHash || "",

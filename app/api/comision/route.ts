@@ -4,16 +4,20 @@ import {
   validateCommissionConstitution,
 } from "@/domain/commission";
 import { prisma } from "@/server/db";
+import { requirePermission, requireSession } from "@/server/guard";
 
 const DEFAULT_ACTIVE_BRIGADES = ["11", "12", "22", "32", "41"];
 
 export async function GET() {
+  const guard = await requireSession();
+  if (!guard.ok) return guard.response;
+
   try {
     const commission = await prisma.commission.findFirst({
       include: {
         seats: {
           include: {
-            user: { select: { id: true, name: true, email: true } },
+            user: { select: { id: true, name: true } },
           },
         },
       },
@@ -55,6 +59,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const guard = await requirePermission("CONSTITUTE_COMMISSION");
+  if (!guard.ok) return guard.response;
+
   try {
     const body = (await request.json()) as CommissionConstitutionParams;
 

@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server";
 import { electionStore } from "@/server/election-store";
+import { requirePermission } from "@/server/guard";
 
 /**
  * Consulta el estado y la integridad criptográfica de la cadena WORM de auditoría (Item 7.3 / Art. 66).
  */
 export async function GET() {
+  const guard = await requirePermission("VIEW_AUDIT_LOG");
+  if (!guard.ok) return guard.response;
+  await electionStore.ensureReady();
+
   const auditStatus = electionStore.getAuditStatus();
 
   return NextResponse.json({

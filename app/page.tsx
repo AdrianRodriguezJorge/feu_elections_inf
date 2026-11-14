@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
+import { signOut } from "next-auth/react";
 import { Header, ActiveTab } from "@/components/Header";
 import { Footer } from "@/components/Footer";
 import { VoterBallot, VoterInfo } from "@/components/VoterBallot";
@@ -9,7 +10,7 @@ import { ResultsPanel } from "@/components/ResultsPanel";
 import { ReglamentoViewer } from "@/components/ReglamentoViewer";
 import { ObserverPanel } from "@/components/ObserverPanel";
 import { LoginCard } from "@/components/LoginCard";
-import { AuthUser } from "@/components/AuthModal";
+import type { SessionUser } from "@/lib/session-user";
 import { ProcessCandidateSnapshot } from "@/domain/candidates";
 import { ProcessConfig, DEFAULT_PROCESS_CONFIG } from "@/domain/config";
 
@@ -31,29 +32,30 @@ interface ProcessSummary {
 export default function Home() {
   const [activeTab, setActiveTab] = useState<ActiveTab>("VOTACION");
   const [summary, setSummary] = useState<ProcessSummary>({
-    status: "ABIERTA",
-    seats: 9,
-    candidatesCount: 11,
-    totalEligible: 12,
+    status: "",
+    seats: 0,
+    candidatesCount: 0,
+    totalEligible: 0,
     totalVotes: 0,
     validBallots: 0,
     annulledBallots: 0,
     participationPct: 0,
     minParticipationPercentage: 85,
-    minVotesRequired: 11,
+    minVotesRequired: 0,
     requirementMet: false,
     candidacyHash: "",
   });
   const [config, setConfig] = useState<ProcessConfig>(DEFAULT_PROCESS_CONFIG);
   const [candidates, setCandidates] = useState<ProcessCandidateSnapshot[]>([]);
-  const [electors, setElectors] = useState<VoterInfo[]>([]);
+  const [me, setMe] = useState<VoterInfo | null>(null);
+  const [brigadeTurnout, setBrigadeTurnout] = useState<Array<{ code: string; total: number; voted: number }>>([]);
   const [commission, setCommission] = useState<
     Array<{ ci: string; name: string; office: string; brigadeCode: string }>
   >([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Estado de Autenticación
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(null);
+  const [currentUser, setCurrentUser] = useState<SessionUser | null>(null);
 
   // Carga reactiva de los datos del proceso
   const loadState = useCallback(async () => {
@@ -64,61 +66,50 @@ export default function Home() {
         setSummary(data.summary);
         setConfig(data.config);
         setCandidates(data.candidates || []);
-        setElectors(data.electors || []);
+        setMe(data.me ?? null);
+        setBrigadeTurnout(data.brigadeTurnout ?? []);
         setCommission(data.commission || []);
       }
-    } catch (err) {
-      console.error("Error cargando estado electoral:", err);
+    } catch {
+      // Se reintenta en la próxima acción del usuario
+    }
+  }, []);
+
+  const landingTab = (role: SessionUser["role"]): ActiveTab =>
+    role === "ADMIN" || role === "COMMISSION" ? "ADMIN" : role === "OBSERVER" ? "OBSERVADOR" : "VOTACION";
+
+  // La sesión la emite el servidor (cookie cifrada de Auth.js); aquí solo se lee.
+  const refreshSession = useCallback(async () => {
+    try {
+      const res = await fetch("/api/auth/session");
+      const data = await res.json();
+      const user = data?.user as SessionUser | undefined;
+      if (user?.ci && user.role) {
+        setCurrentUser(user);
+        setActiveTab(landingTab(user.role));
+        await loadState();
+      } else {
+        setCurrentUser(null);
+      }
+    } catch {
+      setCurrentUser(null);
     } finally {
       setIsLoading(false);
     }
-  }, []);
-
-  // Consultar sesión activa en el servidor
-  useEffect(() => {
-    const checkSession = async () => {
-      try {
-        const res = await fetch("/api/auth/login");
-        const data = await res.json();
-        if (data.authenticated && data.user) {
-          setCurrentUser(data.user);
-          if (data.user.role === "ADMIN" || data.user.role === "COMMISSION") {
-            setActiveTab("ADMIN");
-          } else if (data.user.role === "OBSERVER") {
-            setActiveTab("OBSERVADOR");
-          } else {
-            setActiveTab("VOTACION");
-          }
-        }
-      } catch {
-        // Sin sesión previa
-      }
-    };
-    checkSession();
-  }, []);
-
-  useEffect(() => {
-    loadState();
   }, [loadState]);
 
-  const handleLoginSuccess = (user: AuthUser) => {
-    setCurrentUser(user);
-    if (user.role === "ADMIN" || user.role === "COMMISSION") {
-      setActiveTab("ADMIN");
-    } else if (user.role === "OBSERVER") {
-      setActiveTab("OBSERVADOR");
-    } else {
-      setActiveTab("VOTACION");
-    }
-  };
+  useEffect(() => {
+    refreshSession();
+  }, [refreshSession]);
 
   const handleLogout = async () => {
     try {
-      await fetch("/api/auth/login", { method: "DELETE" });
+      await signOut({ redirect: false });
     } catch {
-      // Ignorar
+      // La cookie caduca sola a las 8 horas
     }
     setCurrentUser(null);
+    setMe(null);
     setActiveTab("VOTACION");
   };
 
@@ -129,15 +120,18 @@ export default function Home() {
   if (!currentUser) {
     return (
       <div className="h-screen h-[100dvh] flex flex-col bg-feu-green-50/40 text-feu-green-900 overflow-hidden">
-        <main className="flex-1 flex items-center justify-center px-4 py-2 min-h-0">
+        {/* Sin scroll en el login; solo aparece si el formulario no cabe (p. ej. activación en pantallas bajas). */}
+        <main className="flex-1 flex flex-col items-center overflow-y-auto px-4 py-2 min-h-0">
+          <div className="my-auto w-full flex justify-center">
           {isLoading ? (
             <div className="text-center">
               <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-[#136D54] border-r-transparent" />
               <p className="mt-2 text-xs text-gray-500">Cargando portal institucional...</p>
             </div>
           ) : (
-            <LoginCard onLoginSuccess={handleLoginSuccess} />
+            <LoginCard onLoginSuccess={refreshSession} />
           )}
+          </div>
         </main>
         <Footer />
       </div>
@@ -167,9 +161,7 @@ export default function Home() {
           <VoterBallot
             candidates={candidates}
             seats={summary.seats}
-            electors={electors}
-            selectedVoterCi={currentUser.ci}
-            onSelectVoter={() => {}}
+            me={me}
             onVoteCast={loadState}
             currentUser={currentUser}
             status={summary.status}
@@ -210,7 +202,7 @@ export default function Home() {
             minVotesRequired={summary.minVotesRequired}
             requirementMet={summary.requirementMet}
             candidacyHash={summary.candidacyHash}
-            electors={electors}
+            brigadeTurnout={brigadeTurnout}
             candidatesCount={summary.candidatesCount}
             seats={summary.seats}
             onRefresh={loadState}

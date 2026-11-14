@@ -15,7 +15,8 @@ interface ObserverPanelProps {
   minVotesRequired: number;
   requirementMet: boolean;
   candidacyHash?: string;
-  electors: Array<{ ci: string; name: string; brigadeCode: string; hasVoted: boolean }>;
+  /** Participación agregada por brigada (el servidor nunca envía el listado de electores). */
+  brigadeTurnout: Array<{ code: string; total: number; voted: number }>;
   candidatesCount: number;
   seats: number;
   onRefresh: () => void;
@@ -32,7 +33,7 @@ export function ObserverPanel({
   minVotesRequired,
   requirementMet,
   candidacyHash: _candidacyHash,
-  electors,
+  brigadeTurnout,
   candidatesCount,
   seats,
   onRefresh,
@@ -40,18 +41,9 @@ export function ObserverPanel({
   const [verifierOpen, setVerifierOpen] = useState(false);
   const [testReceiptHash, setTestReceiptHash] = useState("");
 
-  // Cálculo de participación por brigada (agregado anónimo para observadores)
-  const brigadesStats = electors.reduce((acc, el) => {
-    const code = el.brigadeCode || "Sin Brigada";
-    if (!acc[code]) {
-      acc[code] = { total: 0, voted: 0 };
-    }
-    acc[code].total += 1;
-    if (el.hasVoted) {
-      acc[code].voted += 1;
-    }
-    return acc;
-  }, {} as Record<string, { total: number; voted: number }>);
+  const brigadesStats = Object.fromEntries(
+    brigadeTurnout.map((b) => [b.code, { total: b.total, voted: b.voted }]),
+  ) as Record<string, { total: number; voted: number }>;
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -92,7 +84,7 @@ export function ObserverPanel({
           <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-4">
             <p className="text-xs text-gray-500">Membresía Habilitada</p>
             <p className="text-2xl font-bold text-feu-green-900">{totalEligible}</p>
-            <p className="text-[11px] text-gray-400">{electors.length} estudiantes activos</p>
+            <p className="text-[11px] text-gray-500">electores en el registro</p>
           </div>
           <div className="rounded-lg border border-gray-200 bg-gray-50/50 p-4">
             <p className="text-xs text-gray-500">Boletas en Urna</p>
@@ -225,7 +217,7 @@ export function ObserverPanel({
           <p className="flex items-start gap-1.5">
             <ShieldCheck className="h-4 w-4 text-gray-500 shrink-0 mt-0.5" strokeWidth={2} />
             <span>
-              <strong>Garantía de Secreto:</strong> Ninguna tabla del sistema asocia la identidad del elector con la boleta. Las participaciones solo registran &quot;ha votado&quot; sin vincular el comprobante.
+              <strong>Secreto del voto:</strong> las boletas se guardan sin el nombre, el carnet ni la hora de quien votó. El registro de participación solo indica quién ya votó, no qué boleta depositó.
             </span>
           </p>
         </div>

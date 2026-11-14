@@ -6,37 +6,30 @@ import { ProcessCandidateSnapshot } from "@/domain/candidates";
 import { BallotSelection } from "@/domain/types";
 import { BiographyModal } from "./BiographyModal";
 import { ReceiptVerifierModal } from "./ReceiptVerifierModal";
-import { AuthUser } from "./AuthModal";
+import type { SessionUser } from "@/lib/session-user";
 
+/** Ficha del elector autenticado (la devuelve el servidor desde la sesión). */
 export interface VoterInfo {
-  ci: string;
   name: string;
   brigadeCode: string;
   hasVoted: boolean;
-  receiptHash?: string;
 }
 
 interface VoterBallotProps {
   candidates: ProcessCandidateSnapshot[];
   seats: number;
-  electors: VoterInfo[];
-  selectedVoterCi: string;
-  onSelectVoter: (ci: string) => void;
+  me: VoterInfo | null;
   onVoteCast: () => void;
-  currentUser?: AuthUser | null;
-  onOpenAuth?: () => void;
+  currentUser: SessionUser;
   status?: string;
 }
 
 export function VoterBallot({
   candidates,
   seats,
-  electors,
-  selectedVoterCi,
-  onSelectVoter: _onSelectVoter,
+  me,
   onVoteCast,
   currentUser,
-  onOpenAuth,
   status,
 }: VoterBallotProps) {
   // Estado local de selecciones en la boleta
@@ -58,12 +51,10 @@ export function VoterBallot({
   const [submitResult, setSubmitResult] = useState<{
     receiptHash: string;
     ballotStatus: string;
-    timestamp: string;
   } | null>(null);
   const [inlineError, setInlineError] = useState<string | null>(null);
 
-  const effectiveCi = currentUser?.ci || selectedVoterCi;
-  const currentVoter = electors.find((e) => e.ci === effectiveCi);
+  const currentVoter = me;
 
   // Función para copiar comprobante
   const handleCopyReceipt = async (text: string) => {
@@ -131,12 +122,6 @@ export function VoterBallot({
   const handleCastValidBallot = async () => {
     setInlineError(null);
 
-    if (!effectiveCi) {
-      setInlineError("Debe iniciar sesión para emitir su voto.");
-      if (onOpenAuth) onOpenAuth();
-      return;
-    }
-
     if (memberMarks.size === 0) {
       setInlineError("Debes seleccionar al menos un candidato para emitir un voto válido.");
       return;
@@ -161,12 +146,7 @@ export function VoterBallot({
       const res = await fetch("/api/voto/emitir", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          voterCi: effectiveCi,
-          role: "VOTER",
-          selections,
-          isAnnulled: false,
-        }),
+        body: JSON.stringify({ selections, isAnnulled: false }),
       });
 
       const data = await res.json();
@@ -178,7 +158,6 @@ export function VoterBallot({
       setSubmitResult({
         receiptHash: data.receiptHash,
         ballotStatus: data.ballotStatus,
-        timestamp: data.timestamp,
       });
       onVoteCast();
     } catch {
@@ -193,23 +172,12 @@ export function VoterBallot({
     setShowAnnulModal(false);
     setInlineError(null);
 
-    if (!effectiveCi) {
-      setInlineError("Debe iniciar sesión para registrar su participación.");
-      if (onOpenAuth) onOpenAuth();
-      return;
-    }
-
     setIsSubmitting(true);
     try {
       const res = await fetch("/api/voto/emitir", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          voterCi: effectiveCi,
-          role: "VOTER",
-          selections: [],
-          isAnnulled: true,
-        }),
+        body: JSON.stringify({ selections: [], isAnnulled: true }),
       });
 
       const data = await res.json();
@@ -221,7 +189,6 @@ export function VoterBallot({
       setSubmitResult({
         receiptHash: data.receiptHash,
         ballotStatus: data.ballotStatus,
-        timestamp: data.timestamp,
       });
       onVoteCast();
     } catch {
@@ -251,13 +218,27 @@ export function VoterBallot({
     );
   }
 
+  // El usuario autenticado no está en el registro de electores
+  if (!currentVoter && !submitResult) {
+    return (
+      <div className="mx-auto max-w-2xl rounded-2xl border border-gray-200 bg-white p-8 text-center shadow-lg">
+        <h2 className="text-xl font-bold text-gray-900">No figuras en el registro de electores</h2>
+        <p className="mt-2 text-sm text-gray-600">
+          Tu cuenta no está asociada a ningún elector habilitado. Si crees que es un error, contacta a la Comisión
+          Electoral.
+        </p>
+      </div>
+    );
+  }
+
   // Si el elector ya votó o acaba de emitir su voto
   if (submitResult || (currentVoter && currentVoter.hasVoted)) {
-    const hash = submitResult?.receiptHash || currentVoter?.receiptHash;
-    const statusLabel =
-      submitResult?.ballotStatus === "ANULADA_POR_ELECTOR"
-        ? "Boleta Anulada por el Elector"
-        : "Voto Válido Depositado";
+    const hash = submitResult?.receiptHash;
+    const statusLabel = !submitResult
+      ? "Ya votaste"
+      : submitResult.ballotStatus === "ANULADA_POR_ELECTOR"
+        ? "Boleta anulada registrada"
+        : "Voto registrado";
 
     return (
       <div className="mx-auto max-w-2xl rounded-2xl border border-emerald-200 bg-white p-6 sm:p-10 text-center shadow-lg">
@@ -277,17 +258,27 @@ export function VoterBallot({
         </h2>
 
         <p className="mt-2 text-sm text-gray-600">
-          Elector: <strong className="text-gray-900">{currentVoter?.name || currentUser?.name}</strong> · Carnet:{" "}
-          <span className="font-mono">{currentVoter?.ci || currentUser?.ci}</span> · Brigada:{" "}
-          <span className="font-semibold">{currentVoter?.brigadeCode || "Facultad"}</span>
+          Elector: <strong className="text-gray-900">{currentVoter?.name || currentUser.name}</strong>
+          {currentVoter?.brigadeCode && (
+            <>
+              {" "}· Brigada: <span className="font-semibold">{currentVoter.brigadeCode}</span>
+            </>
+          )}
         </p>
+
+        {!hash && (
+          <p className="mt-4 text-sm text-gray-600">
+            Tu participación ya está registrada. Si guardaste tu comprobante, puedes verificar que tu boleta está en la
+            urna.
+          </p>
+        )}
 
         {hash && (
           /* Tarjeta del Comprobante con Botón de Copiado */
           <div className="my-6 rounded-xl border border-emerald-200 bg-emerald-50/40 p-4 sm:p-5 text-left">
             <div className="flex items-center justify-between gap-2 border-b border-emerald-100 pb-2 mb-2">
               <span className="text-xs font-bold uppercase tracking-wider text-emerald-900">
-                Comprobante Criptográfico Oficial (SHA-256)
+                Tu comprobante
               </span>
               <span className="rounded bg-emerald-200/60 px-2 py-0.5 text-[10px] font-semibold text-emerald-800">
                 Inmutable
@@ -319,12 +310,12 @@ export function VoterBallot({
                   className="w-full sm:w-auto flex items-center justify-center gap-2 rounded-lg border border-[#136D54] bg-white px-4 py-2.5 text-xs sm:text-sm font-bold text-[#136D54] shadow-xs transition hover:bg-emerald-50 active:scale-95 cursor-pointer"
                 >
                   <Search className="h-4 w-4" strokeWidth={2} />
-                  <span>Ver Boleta en Urna</span>
+                  <span>Verificar comprobante</span>
                 </button>
               </div>
 
               <span className="text-[11px] text-gray-500 text-center sm:text-right">
-                Guarda este código para verificar tu participación.
+                Guárdalo: es la única forma de comprobar que tu boleta está en la urna.
               </span>
             </div>
           </div>
@@ -362,14 +353,14 @@ export function VoterBallot({
                 Elector Acreditado en el Listado Oficial
               </p>
               <p className="text-sm font-bold text-gray-900">
-                {currentVoter ? currentVoter.name : (currentUser?.name || currentUser?.ci)}
+                {currentVoter?.name ?? currentUser.name}
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 text-xs">
             <span className="rounded-lg bg-gray-100 px-2.5 py-1 text-gray-700 font-medium">
-              Brigada: <strong className="text-gray-900">{currentVoter?.brigadeCode || "41"}</strong>
+              Brigada: <strong className="text-gray-900">{currentVoter?.brigadeCode ?? "—"}</strong>
             </span>
             <span className="rounded-lg bg-emerald-50 px-2.5 py-1 text-emerald-800 border border-emerald-200 font-semibold flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
@@ -387,7 +378,7 @@ export function VoterBallot({
           className="text-xs text-gray-600 hover:text-gray-900 underline flex items-center gap-1.5 font-medium"
         >
           <Search className="h-3.5 w-3.5 text-gray-500" strokeWidth={2} />
-          <span>{showSearchBox ? "Ocultar consulta" : "¿Tienes un comprobante? Consultar boleta en la urna"}</span>
+          <span>{showSearchBox ? "Ocultar" : "¿Tienes un comprobante? Verifícalo"}</span>
         </button>
       </div>
 
@@ -397,7 +388,8 @@ export function VoterBallot({
             type="text"
             value={searchReceiptInput}
             onChange={(e) => setSearchReceiptInput(e.target.value)}
-            placeholder="Pega aquí el código SHA-256 de un comprobante..."
+            placeholder="Pega aquí tu comprobante"
+            aria-label="Comprobante"
             className="flex-1 rounded-lg border border-gray-300 p-2 text-xs font-mono text-gray-900 focus:border-[#136D54] focus:outline-hidden"
           />
           <button
@@ -409,7 +401,7 @@ export function VoterBallot({
             }}
             className="rounded-lg bg-[#136D54] px-4 py-2 text-xs font-bold text-white shadow-xs hover:bg-[#0C4B39]"
           >
-            Buscar en Urna
+            Verificar
           </button>
         </div>
       )}

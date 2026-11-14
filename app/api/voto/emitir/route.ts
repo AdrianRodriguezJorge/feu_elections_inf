@@ -1,49 +1,47 @@
-import { NextRequest, NextResponse } from "next/server";
+import { NextResponse } from "next/server";
+import { z } from "zod";
 import { electionStore } from "@/server/election-store";
-import { BallotSelection, UserRole } from "@/domain/types";
+import { parseBody, requirePermission } from "@/server/guard";
 import { checkRateLimit } from "@/server/rate-limiter";
 
+const ballotSchema = z.object({
+  selections: z
+    .array(
+      z.object({
+        processCandidateId: z.string().min(1).max(64),
+        member: z.boolean(),
+        president: z.boolean(),
+      }),
+    )
+    .max(200),
+  isAnnulled: z.boolean().default(false),
+});
+
 /**
- * Emite una boleta en la urna digital (F4).
+ * Emite la boleta del elector autenticado (F4).
  *
- * Invariantes de seguridad electoral:
- *  - Urna ciega: la boleta guardada no contiene la identidad ni el CI del elector (INV-04).
- *  - Un solo voto por elector: se consume la participación en el padrón (INV-06 / RGF-25).
- *  - Genera un comprobante criptográfico SHA-256 anónimo (receiptHash).
+ *  - La identidad sale de la sesión; el cuerpo solo trae las marcas.
+ *  - Urna ciega: la boleta no guarda identidad ni hora exacta (INV-04).
+ *  - Un solo voto por elector (INV-06 / RGF-25).
  */
-export async function POST(request: NextRequest) {
+export async function POST(request: Request) {
+  const guard = await requirePermission("CAST_BALLOT");
+  if (!guard.ok) return guard.response;
+  const { user } = guard;
+
+  const rateCheck = checkRateLimit(`vote:${user.ci}`, 10, 60_000);
+  if (!rateCheck.allowed) {
+    return NextResponse.json(
+      { ok: false, error: `Demasiados intentos. Espera ${rateCheck.resetSeconds} segundos.` },
+      { status: 429, headers: { "Retry-After": String(rateCheck.resetSeconds) } },
+    );
+  }
+
+  const body = await parseBody(request, ballotSchema);
+  if (!body.ok) return body.response;
+
   try {
-    const body = (await request.json()) as {
-      voterCi?: string;
-      role?: UserRole;
-      selections?: BallotSelection[];
-      isAnnulled?: boolean;
-    };
-
-    const voterCi = body.voterCi?.trim();
-    if (!voterCi) {
-      return NextResponse.json(
-        { ok: false, error: "Identificación del elector requerida (Carnet de Identidad)." },
-        { status: 400 },
-      );
-    }
-
-    // Rate Limiting (Item 7.4)
-    const ip = request.headers.get("x-forwarded-for") || "local";
-    const rateCheck = checkRateLimit(`vote:${ip}:${voterCi}`, 30, 60_000);
-    if (!rateCheck.allowed) {
-      return NextResponse.json(
-        { ok: false, error: `Límite de peticiones alcanzado. Espera ${rateCheck.resetSeconds} segundos.` },
-        { status: 429, headers: { "Retry-After": String(rateCheck.resetSeconds) } },
-      );
-    }
-
-    const role: UserRole = body.role ?? "VOTER";
-    const selections = body.selections ?? [];
-    const isAnnulled = Boolean(body.isAnnulled);
-
-    const result = await electionStore.castBallot(voterCi, role, selections, isAnnulled);
-
+    const result = await electionStore.castBallot(user.ci, user.role, body.data.selections, body.data.isAnnulled);
     if (!result.ok) {
       return NextResponse.json(result, { status: 422 });
     }
@@ -52,17 +50,15 @@ export async function POST(request: NextRequest) {
       ok: true,
       message:
         result.status === "VALIDA"
-          ? "Tu voto ha sido depositado exitosamente en la urna secreta."
-          : "Tu boleta anulada conscientemente ha sido depositada en la urna.",
+          ? "Tu voto quedó registrado en la urna."
+          : "Tu boleta anulada quedó registrada en la urna.",
       receiptHash: result.receiptHash,
       ballotStatus: result.status,
-      timestamp: new Date().toISOString(),
     });
   } catch {
     return NextResponse.json(
-      { ok: false, error: "Error interno procesando la emisión del voto." },
+      { ok: false, error: "No pudimos registrar tu voto y no se ha contado. Inténtalo de nuevo." },
       { status: 500 },
     );
   }
 }
-

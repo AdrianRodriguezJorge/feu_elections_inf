@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { electionStore } from "@/server/election-store";
+import { requirePermission } from "@/server/guard";
 
 /**
  * Realiza el escrutinio oficial de la urna digital (F5).
@@ -7,7 +8,11 @@ import { electionStore } from "@/server/election-store";
  * Solo permitido cuando la votación está en estado CERRADA (o ya ESCRUTADA).
  */
 export async function POST() {
+  const guard = await requirePermission("TALLY_VOTES");
+  if (!guard.ok) return guard.response;
+
   try {
+    await electionStore.ensureReady();
     if (electionStore.status !== "CERRADA" && electionStore.status !== "ESCRUTADA" && electionStore.status !== "PROCLAMADA") {
       return NextResponse.json(
         {
@@ -18,7 +23,7 @@ export async function POST() {
       );
     }
 
-    const result = await electionStore.runTally();
+    const result = await electionStore.runTally(guard.user);
 
     // Enlazar los IDs de candidatos con sus datos completos para visualización en el acta
     const candidatesMap = new Map(electionStore.snapshot.map((c) => [c.candidateId, c]));
