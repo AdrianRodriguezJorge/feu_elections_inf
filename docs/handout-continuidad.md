@@ -25,7 +25,7 @@ Plataforma web para la elección del **Secretariado de la Facultad de Ingenierí
 | F4 | Tests de integración y e2e en GitHub Actions | Hecha | `827e6ed` |
 | F5 | UX funcional, accesibilidad WCAG 2.1 AA, textos en usted | Hecha | `a1b5c1d`, `b3f4030` |
 | F7 | Rutas por rol, sistema de diseño "papeleta impresa", componentes partidos | Hecha | ver `git log` |
-| **F6** | **CRUDs operativos** (padrón, candidatos, brigadas, comisión, visor de auditoría) | **Pendiente (siguiente)** | — |
+| **F6** | **CRUDs operativos** (padrón, candidatos, brigadas, comisión, visor de auditoría, usuarios) | **Pendiente (siguiente); decisiones ya tomadas, ver §9** | — |
 | F8 | Pruebas de carga, Docker/runbook, simulacro UAT | Pendiente | — |
 
 El usuario cambió el orden: F7 se hizo antes que F6 para construir los CRUDs sobre las rutas y componentes nuevos.
@@ -152,15 +152,29 @@ Hasta hacerlo, **los builds de Vercel fallan** con `P3005 The database schema is
 
 ## 9. Lo que falta (roadmap)
 
-### F6 · CRUDs operativos (siguiente)
-Hoy solo se pueden importar electores por CSV; no hay forma de corregir nada sin tocar el seed. Falta (ver matriz de CRUD del informe, §3):
-- **Padrón:** listar, buscar, editar, habilitar/inhabilitar (antes de abrir); vista previa de la importación (`POST /api/padron/validate` existe sin interfaz); plantilla CSV (`GET /api/padron/template`, sin interfaz).
-- **Candidatos:** alta, edición y baja antes de congelar la candidatura; recalcular N y el snapshot hasheado; biografías.
-- **Brigadas:** crear/editar (el plan dice que se crean antes de importar).
-- **Comisión Electoral:** constituir y modificar de forma persistida (`POST /api/comision` hoy valida pero no guarda).
-- **Visor de auditoría** para observadores (`GET /api/auditoria` existe sin interfaz).
-- **Gestión de usuarios/roles** y creación de procesos (hoy solo por seed).
-- Fijar el congelamiento: candidatos y padrón no editables al abrir.
+### F6 · CRUDs operativos (siguiente; decisiones ya tomadas, listo para implementar)
+Hoy solo se pueden importar electores por CSV; no hay forma de corregir nada sin tocar el seed. Ver la matriz de CRUD del informe de auditoría (§3). **Alcance elegido por el usuario: los cuatro bloques.**
+
+**Decisiones del usuario para F6 (14-11-2026):**
+1. **Alcance:** padrón, candidatos, brigadas y Comisión, y visor de auditoría con gestión de usuarios.
+2. **Congelación:** **se congela al abrir la votación**, sin paso extra. Candidatos y padrón se editan libremente en `CONVOCADO`; al ejecutar "Abrir votación" el sistema fija el sello (hash SHA-256 de la candidatura), el orden de la boleta y el padrón, en la misma transacción que la apertura (`openVoting` en `src/server/election-service.ts`). Después de abrir, nada de eso se puede modificar.
+3. **Bajas:** la Comisión puede **eliminar** electores y candidatos **mientras el proceso esté en `CONVOCADO`**; cada alta, edición y baja queda en la cadena de auditoría (hay que añadir los tipos de evento a `AuditEventType` en `src/domain/audit.ts`). Tras abrir, no se borra ni se modifica nada.
+4. **Seed:** se mantienen los datos de prueba (10 candidatos y electores ficticios) en el seed de producción mientras sea fase de pruebas; la Comisión los sustituye desde la interfaz cuando cargue los reales.
+
+**Qué construir** (cada bloque con API protegida por `requirePermission`, validación Zod, UI con los componentes de `src/components/ui/`, estética "papeleta" y tests de integración + e2e en el CI):
+- **Padrón:** listar con búsqueda y paginación, alta manual, edición (nombre, brigada), habilitar/inhabilitar, eliminar; vista previa de la importación CSV (`POST /api/padron/validate` existe sin interfaz) y descarga de la plantilla (`GET /api/padron/template`, sin interfaz). Hoy `POST /api/padron/import` ya guarda la brigada y rechaza fuera de `CONVOCADO`.
+- **Candidatos:** alta, edición y baja con validación del carnet (`src/domain/ci.ts`). Cada cambio debe **recalcular** `candidatesCount`, `seats` (= candidatos − 2, Art. 59, con la restricción `CHECK` de la migración `0003_checks`), el orden alfabético de la boleta (`ballotPosition`) y el sello; mínimo 5 candidatos (`canOpenProcess` en `src/domain/seats.ts`): **la apertura debe rechazarse si no se cumple**. Biografías en Markdown sanitizadas (`sanitizeBiographyMd`).
+- **Brigadas:** crear, editar y desactivar (el plan dice que se crean antes de importar el padrón). No se elimina una brigada con electores.
+- **Comisión Electoral:** constituir y modificar de forma persistida con su acta (`POST /api/comision` hoy valida con `validateCommissionConstitution` pero no guarda; `GET` ya lee de BD). Usa `commissions` y `commission_seats` (enum `CommissionRole`).
+- **Visor de auditoría** (pantalla para observadores, Comisión y Admin): eventos con filtro, verificación de la cadena (`GET /api/auditoria` existe sin interfaz); nunca mostrar datos de electores.
+- **Gestión de usuarios y roles** (solo ADMIN): listar, cambiar rol, desactivar, restablecer cuenta (ya existe `POST /api/cuenta/restablecer` y su tarjeta en `/comision`). Acción `MANAGE_ACCOUNTS` en `src/domain/permissions.ts`.
+- **Rutas nuevas** sugeridas (añadir en `src/lib/routes.ts` y con `requirePageRole`): `/comision/padron`, `/comision/candidatos`, `/comision/brigadas`, `/comision/usuarios` y `/auditoria`.
+
+**Cuidados al implementar:**
+- Los triggers WORM impiden tocar `ballots`, `ballot_selections`, `participations` y `audit_events`; las bajas deben ser posibles solo antes de abrir (no hay participaciones aún). Si una baja choca con una clave foránea, no desactive el trigger: ajuste el orden o el modelo.
+- Cada operación debe ir en una transacción con `lockProcess` (patrón de `election-service.ts`) y comprobar `status === "CONVOCADO"` en el servidor, no solo en la interfaz.
+- Mantenga el secreto del voto: ninguna pantalla de gestión debe mostrar quién votó ni relacionar personas con comprobantes. El estado `hasVoted` por elector solo se expone a Comisión/Admin y nunca junto a ningún dato de la boleta.
+- Actualice el handout (§1, §3 y esta sección) al terminar y haga un solo commit de la fase en `main`.
 
 ### F8 · Despliegue y operación
 Pruebas de carga (300 electores concurrentes, p95 de emisión < 800 ms, escrutinio < 10 s); runbook de contingencia (apertura/cierre manual, respaldo y restauración); simulacro UAT con la Comisión antes de cargar el padrón real; actualizar este handout.
@@ -191,7 +205,7 @@ Pruebas de carga (300 electores concurrentes, p95 de emisión < 800 ms, escrutin
 ```
 Continúa el proyecto de elecciones del Secretariado de la FEU (Facultad de Ingeniería Informática, CUJAE) en https://github.com/AdrianRodriguezJorge/feu_elections_inf. Lee primero docs/handout-continuidad.md (estado, decisiones, directivas del usuario, pendientes) y auditoria/informe-auditoria-2026-11-13.md.
 
-Estado: fases F1–F5 y F7 hechas y subidas; el CI de GitHub es la prueba de que todo funciona. Falta la fase F6 (CRUDs operativos: padrón, candidatos, brigadas, comisión persistida, visor de auditoría para observadores) y la F8 (carga, runbook, UAT). El usuario aún debe reiniciar la BD de producción y añadir AUTH_SECRET en Vercel (handout §8); hasta entonces los builds de Vercel fallan con P3005.
+Estado: fases F1–F5 y F7 hechas y subidas; el CI de GitHub es la prueba de que todo funciona. Falta la fase F6 (CRUDs operativos) y la F8 (carga, runbook, UAT). Las decisiones de F6 ya están tomadas y documentadas en el handout §9 (alcance completo, congelación al abrir, bajas permitidas solo en CONVOCADO, seed con datos de prueba): impleméntalas sin volver a preguntarlas y pregunta solo lo que no esté decidido (p. ej. el diseño de pantallas concreto o los campos del formulario de candidatos). El usuario aún debe reiniciar la BD de producción y añadir AUTH_SECRET en Vercel (handout §8); hasta entonces los builds de Vercel fallan con P3005.
 
 Reglas: un commit por fase directamente en main y push; antes de empezar cada fase pregunta las decisiones abiertas y espera respuesta; trato de usted y estética "papeleta impresa" ya definidos; el voto es secreto (urna ciega, comprobante que solo confirma inclusión); no uses Docker ni escribas en la BD feu del usuario; ejecuta las pruebas en GitHub Actions. Empieza por plantear al usuario las decisiones de F6.
 ```
