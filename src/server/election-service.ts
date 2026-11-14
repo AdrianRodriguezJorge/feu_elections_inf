@@ -399,7 +399,7 @@ export async function castBallot(
     });
   } catch (err) {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
-      throw new ServiceError(422, "Ya emitiste tu voto en este proceso electoral.");
+      throw new ServiceError(422, "Ya emitió su voto en este proceso electoral.");
     }
     throw err;
   }
@@ -633,7 +633,7 @@ export async function handleVacancy(actor: Actor, req: VacancyRequest): Promise<
       return outcome.composition;
     }
 
-    if (!req.successorCandidateId) throw new ServiceError(422, "Indica el candidato a la vicepresidencia.");
+    if (!req.successorCandidateId) throw new ServiceError(422, "Indique el candidato a la vicepresidencia.");
     const outcome = designateSuccessorVicePresident(
       current,
       req.successorCandidateId,

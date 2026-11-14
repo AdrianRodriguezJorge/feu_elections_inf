@@ -22,7 +22,7 @@ export async function POST(request: Request) {
   const rateCheck = checkRateLimit(`vote:${guard.user.ci}`, 10, 60_000);
   if (!rateCheck.allowed) {
     return NextResponse.json(
-      { ok: false, error: `Demasiados intentos. Espera ${rateCheck.resetSeconds} segundos.` },
+      { ok: false, error: `Demasiados intentos. Espere ${rateCheck.resetSeconds} segundos.` },
       { status: 429, headers: { "Retry-After": String(rateCheck.resetSeconds) } },
     );
   }
@@ -34,7 +34,7 @@ export async function POST(request: Request) {
     const result = await castBallot(guard.user, body.data.selections, body.data.isAnnulled);
     return NextResponse.json({
       ok: true,
-      message: result.status === "VALIDA" ? "Tu voto quedó registrado en la urna." : "Tu boleta anulada quedó registrada en la urna.",
+      message: result.status === "VALIDA" ? "Su voto quedó registrado en la urna." : "Su boleta anulada quedó registrada en la urna.",
       receiptHash: result.receiptHash,
       ballotStatus: result.status,
     });

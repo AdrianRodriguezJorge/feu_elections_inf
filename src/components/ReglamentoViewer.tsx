@@ -86,40 +86,45 @@ export function ReglamentoViewer() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
           <div>
             <h2 className="text-xl font-bold text-feu-green-900">
-              Reglamento General de la FEU (ABC 2019)
+              Reglamento General de la <span className="text-feu-carmesi-500">FEU</span> (ABC 2019)
             </h2>
-            <p className="mt-1 text-xs text-gray-600">
-              Citas literales de los 321 artículos normativos con referencia a página original de <strong>{docName}</strong>.
+            <p className="mt-1 text-sm text-gray-700">
+              Texto literal de los {articles.length} artículos, con la página del documento original <strong>{docName}</strong>.
             </p>
           </div>
           <div className="text-right">
             <span className="inline-block rounded-full bg-feu-green-100 px-3 py-1 text-xs font-bold text-feu-green-900">
-              {filteredArticles.length} artículos disponibles
+              {filteredArticles.length} {filteredArticles.length === 1 ? "artículo" : "artículos"}
             </span>
           </div>
         </div>
 
         {/* Buscador reactivo */}
         <div className="mt-5">
+          <label htmlFor="reglamento-search" className="mb-1 block text-sm font-semibold text-gray-800">
+            Buscar en el reglamento
+          </label>
           <div className="relative">
             <input
+              id="reglamento-search"
               type="text"
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
                 setVisibleCount(24);
               }}
-              placeholder="Escribe un número de artículo (ej: 38, 59, 61, 67) o palabra clave (ej: presidente, boleta, empate)..."
-              className="w-full rounded-lg border border-gray-300 bg-white p-3 pl-10 text-xs sm:text-sm text-gray-900 shadow-2xs focus:border-feu-green-700 focus:outline-hidden"
+              placeholder="Número de artículo (por ejemplo, 38) o palabra clave (por ejemplo, empate)"
+              className="min-h-11 w-full rounded-lg border border-gray-300 bg-white p-3 pl-10 pr-24 text-sm text-gray-900 shadow-2xs focus:border-cujae-green-500 focus:outline-hidden"
             />
-            <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-gray-400" strokeWidth={2} />
+            <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-gray-600" strokeWidth={2} aria-hidden="true" />
             {search && (
               <button
+                type="button"
                 onClick={() => setSearch("")}
-                className="absolute right-3.5 top-3 inline-flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"
+                className="absolute right-1 top-0.5 inline-flex min-h-11 items-center gap-1 px-2 text-sm text-gray-700 hover:text-gray-900"
               >
-                <X className="h-3.5 w-3.5" strokeWidth={2} />
-                <span>Limpiar</span>
+                <X className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                <span>Borrar búsqueda</span>
               </button>
             )}
           </div>
@@ -130,14 +135,16 @@ export function ReglamentoViewer() {
           {CATEGORIES.map((cat, idx) => (
             <button
               key={cat.label}
+              type="button"
+              aria-pressed={selectedCategory === idx}
               onClick={() => {
                 setSelectedCategory(idx);
                 setVisibleCount(24);
               }}
-              className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors ${
+              className={`min-h-11 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
                 selectedCategory === idx
-                  ? "bg-feu-green-700 text-white shadow-2xs"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                  ? "bg-cujae-green-500 text-white shadow-2xs"
+                  : "bg-gray-100 text-gray-800 hover:bg-gray-200"
               }`}
             >
               {cat.label}
@@ -150,18 +157,19 @@ export function ReglamentoViewer() {
       {loading ? (
         <div className="py-12 text-center">
           <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-feu-green-700 border-r-transparent" />
-          <p className="mt-3 text-xs text-gray-500">Cargando reglamento oficial...</p>
+          <p role="status" className="mt-3 text-sm text-gray-700">Cargando el reglamento…</p>
         </div>
       ) : filteredArticles.length === 0 ? (
         <div className="rounded-xl border border-gray-200 bg-white p-8 text-center shadow-xs">
           <p className="text-sm font-semibold text-gray-800">No se encontraron artículos con ese criterio.</p>
-          <p className="mt-1 text-xs text-gray-500">Intenta buscar por otro número de artículo o término general.</p>
+          <p className="mt-1 text-sm text-gray-700">Pruebe con otro número de artículo o con una palabra más general.</p>
           <button
+            type="button"
             onClick={() => {
               setSearch("");
               setSelectedCategory(0);
             }}
-            className="mt-4 rounded-lg bg-feu-green-700 px-4 py-2 text-xs font-bold text-white hover:bg-feu-green-800"
+            className="mt-4 min-h-11 rounded-lg bg-cujae-green-500 px-4 py-2 text-sm font-bold text-white hover:bg-cujae-green-700"
           >
             Ver todos los artículos
           </button>
@@ -177,24 +185,24 @@ export function ReglamentoViewer() {
                 <div>
                   <div className="flex items-center justify-between border-b border-gray-100 pb-2.5">
                     <div className="flex items-center gap-2">
-                      <span className="flex h-6 w-6 items-center justify-center rounded-full bg-feu-green-700 text-white text-[11px] font-bold">
+                      <span aria-hidden="true" className="flex h-6 w-6 items-center justify-center rounded-full bg-cujae-green-500 text-white text-xs font-bold">
                         §
                       </span>
                       <span className="font-bold text-sm text-feu-green-900">
                         Artículo {item.article}
                       </span>
                     </div>
-                    <span className="rounded-md bg-gray-100 px-2 py-0.5 text-[10px] font-mono text-gray-600">
+                    <span className="rounded-md bg-gray-100 px-2 py-0.5 text-xs text-gray-700">
                       Pág. {item.page}
                     </span>
                   </div>
 
-                  <p className="mt-3 text-xs leading-relaxed text-gray-800">
+                  <p className="mt-3 text-sm leading-relaxed text-gray-800">
                     «{item.literalText}»
                   </p>
                 </div>
 
-                <div className="mt-4 pt-2 border-t border-gray-50 flex items-center justify-between text-[10px] text-gray-400">
+                <div className="mt-4 pt-2 border-t border-gray-50 flex items-center justify-between gap-2 text-xs text-gray-600">
                   <span>{item.part}</span>
                   <span>{docName}</span>
                 </div>
@@ -206,8 +214,9 @@ export function ReglamentoViewer() {
           {visibleCount < filteredArticles.length && (
             <div className="pt-2 text-center">
               <button
+                type="button"
                 onClick={() => setVisibleCount((prev) => prev + 24)}
-                className="rounded-lg border border-feu-green-300 bg-white px-6 py-2.5 text-xs font-bold text-feu-green-800 shadow-2xs hover:bg-feu-green-50"
+                className="min-h-11 rounded-lg border border-feu-green-300 bg-white px-6 py-2.5 text-sm font-bold text-feu-green-800 shadow-2xs hover:bg-feu-green-50"
               >
                 Cargar más artículos ({filteredArticles.length - visibleCount} restantes)
               </button>

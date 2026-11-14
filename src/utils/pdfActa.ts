@@ -1,232 +1,199 @@
 import { jsPDF } from "jspdf";
-import { SecretariatComposition } from "@/domain/vacancies";
 
-export interface PdfTotalRow {
-  candidateId: string;
+/**
+ * Construcción del acta de escrutinio en PDF.
+ *
+ * Módulo sin dependencias del navegador: se usa desde el servidor (GET /api/acta).
+ */
+
+export interface ActaCandidateRow {
   fullName: string;
   brigadeCode: string;
   memberVotes: number;
   presidentVotes: number;
-  isElected: boolean;
-  isPresident: boolean;
+  condition: string;
 }
 
-export interface PdfTallyData {
-  totals: PdfTotalRow[];
-  elected: string[];
-  presidentId: string | null;
-  president?: { name: string; fullName: string; brigadeCode: string } | null | undefined;
-  tie: { type: "CUT" | "PRESIDENT"; candidateIds: string[] } | null;
+export interface ActaSignature {
+  name: string;
+  office: string;
 }
 
-export interface GenerateActaPdfParams {
-  tally: PdfTallyData;
+export interface ActaData {
   totalEligible: number;
   participations: number;
   participationPct: number;
   quorumMet: boolean;
-  minPct: number;
-  candidacyHash: string;
-  designatedVpName?: string | undefined;
-  composition?: SecretariatComposition | null | undefined;
+  effectiveQuorumPct: number;
+  quorumException: { pct: number; acta: string } | null;
+  rows: ActaCandidateRow[];
+  presidentName: string;
+  electedPresidentName?: string | null;
+  vicePresidentName?: string | null;
+  tieSentence?: string | null;
+  signatures: ActaSignature[];
+  resultHash: string;
+  issuedAt: Date;
 }
 
-export function generateActaPdf(params: GenerateActaPdfParams) {
-  const doc = new jsPDF({
-    orientation: "portrait",
-    unit: "mm",
-    format: "a4",
-  });
+const pct = (v: number) => `${v.toLocaleString("es-ES", { maximumFractionDigits: 2 })} %`;
 
-  const {
-    tally,
-    totalEligible,
-    participations,
-    participationPct,
-    quorumMet,
-    minPct,
-    candidacyHash,
-    designatedVpName,
-    composition,
-  } = params;
+export function buildActaPdf(data: ActaData): ArrayBuffer {
+  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
 
-  // Colores institucionales
-  const darkGreen: [number, number, number] = [19, 109, 84]; // #136D54
-  const darkGray: [number, number, number] = [40, 40, 40];
-  const feuRed: [number, number, number] = [143, 22, 57]; // #8F1639
+  const green: [number, number, number] = [19, 109, 84]; // cujae-green-500
+  const dark: [number, number, number] = [40, 40, 40];
+  const carmesi: [number, number, number] = [143, 22, 57]; // feu-carmesi-500
 
   let y = 18;
+  const ensureSpace = (needed: number) => {
+    if (y + needed > 280) {
+      doc.addPage();
+      y = 20;
+    }
+  };
 
-  // 1. Membrete Institucional
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
-  doc.setTextColor(...feuRed);
-  doc.text("UNIVERSIDAD TECNOLÓGICA DE LA HABANA \"JOSÉ ANTONIO ECHEVERRÍA\" (CUJAE)", 105, y, { align: "center" });
-
+  doc.setTextColor(...dark);
+  doc.text('UNIVERSIDAD TECNOLÓGICA DE LA HABANA "JOSÉ ANTONIO ECHEVERRÍA" (CUJAE)', 105, y, { align: "center" });
   y += 5;
   doc.setFontSize(9);
-  doc.setTextColor(...darkGreen);
-  doc.text("FEDERACIÓN ESTUDIANTIL UNIVERSITARIA · FACULTAD DE INGENIERÍA INFORMÁTICA", 105, y, { align: "center" });
-
-  y += 7;
-  doc.setDrawColor(19, 109, 84);
+  doc.setTextColor(...carmesi);
+  doc.text("FEU", 105, y, { align: "center" });
+  y += 4.5;
+  doc.setTextColor(...green);
+  doc.text("Facultad de Ingeniería Informática", 105, y, { align: "center" });
+  y += 5;
+  doc.setDrawColor(...green);
   doc.setLineWidth(0.5);
   doc.line(20, y, 190, y);
 
-  // 2. Título del Acta
   y += 9;
   doc.setFontSize(13);
-  doc.setTextColor(...darkGray);
-  doc.text("ACTA OFICIAL DE ESCRUTINIO Y PROCLAMACIÓN", 105, y, { align: "center" });
-
+  doc.setTextColor(...dark);
+  doc.text("ACTA DE ESCRUTINIO Y PROCLAMACIÓN", 105, y, { align: "center" });
   y += 5;
   doc.setFontSize(9);
   doc.setFont("helvetica", "normal");
-  doc.text(`Proceso Electoral 2026 · Elección del Secretariado de Facultad`, 105, y, { align: "center" });
+  doc.text("Elección del Secretariado de la Facultad", 105, y, { align: "center" });
 
-  // 3. Párrafo de Apertura
-  y += 8;
-  doc.setFontSize(8.5);
-  doc.setTextColor(50, 50, 50);
-  const introText =
-    "En la Facultad de Ingeniería Informática de la CUJAE, reunida la Comisión Electoral constituida conforme al Artículo 47 del Reglamento General de la FEU (ABC 2019), se procede a certificar el resultado del escrutinio de la urna electoral y a dar fe de la voluntad soberana expresada por la membresía estudiantil mediante sufragio universal, igual y secreto.";
-  const splitIntro = doc.splitTextToSize(introText, 170);
-  doc.text(splitIntro, 20, y);
-  y += splitIntro.length * 4.2 + 2;
-
-  // 4. Recuadro de Participación y Validez
-  doc.setFillColor(245, 249, 247);
-  doc.setDrawColor(200, 225, 215);
-  doc.roundedRect(20, y, 170, 24, 2, 2, "FD");
+  y += 9;
+  doc.setFontSize(9);
+  const intro =
+    "La Comisión Electoral de la Facultad de Ingeniería Informática certifica el resultado del escrutinio de la elección del Secretariado, realizada mediante voto libre, igual y secreto.";
+  const introLines = doc.splitTextToSize(intro, 170);
+  doc.text(introLines, 20, y);
+  y += introLines.length * 4.4 + 3;
 
   doc.setFont("helvetica", "bold");
-  doc.setFontSize(8);
-  doc.setTextColor(...darkGreen);
-  doc.text("CERTIFICACIÓN DE PARTICIPACIÓN REQUERIDA (ARTÍCULO 38 DEL ABC)", 25, y + 5);
-
+  doc.setTextColor(...green);
+  doc.text("PARTICIPACIÓN Y QUÓRUM", 20, y);
+  y += 5;
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(8);
-  doc.setTextColor(40, 40, 40);
-  doc.text(`• Membresía con Derecho al Voto: ${totalEligible} electores`, 25, y + 10);
-  doc.text(`• Boletas Depositadas en Urna: ${participations} boletas`, 25, y + 14);
-  doc.text(`• Porcentaje de Participación: ${participationPct} %`, 25, y + 18);
-
-  doc.setFont("helvetica", "bold");
-  doc.text(
-    `• Requisito Reglamentario (> ${minPct} %): ${quorumMet ? "CUMPLIDO SATISFACTORIAMENTE" : "NO ALCANZADO"}`,
-    105,
-    y + 10,
-  );
-  doc.text(`• Presidente Electo: ${tally.president?.fullName || "Pendiente de desempate"}`, 105, y + 14);
-  if (designatedVpName) {
-    doc.text(`• Vicepresidente Designado: ${designatedVpName}`, 105, y + 18);
+  doc.setTextColor(...dark);
+  const lines = [
+    `Electores con derecho al voto: ${data.totalEligible}`,
+    `Electores que votaron: ${data.participations} (${pct(data.participationPct)})`,
+    `Quórum requerido: ${pct(data.effectiveQuorumPct)}${
+      data.quorumException ? ` (excepción aprobada en el acta ${data.quorumException.acta})` : ""
+    }`,
+    `Quórum: ${data.quorumMet ? "alcanzado" : "no alcanzado"}`,
+  ];
+  for (const l of lines) {
+    doc.text(l, 22, y);
+    y += 4.6;
   }
 
-  y += 30;
-
-  // 5. Tabla de Cómputo de Votos
-  doc.setFont("helvetica", "bold");
-  doc.setFontSize(9);
-  doc.setTextColor(...darkGreen);
-  doc.text("CÓMPUTO OFICIAL DE SUFRAGIOS", 20, y);
   y += 4;
-
-  // Cabecera de la tabla
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(...green);
+  doc.text("CÓMPUTO DE VOTOS", 20, y);
+  y += 3;
   doc.setFillColor(235, 242, 238);
-  doc.rect(20, y, 170, 6, "F");
-  doc.setFontSize(7.5);
-  doc.setTextColor(...darkGray);
-  doc.text("Candidato / Elector", 23, y + 4.2);
-  doc.text("Brigada", 95, y + 4.2, { align: "center" });
-  doc.text("Votos Miembro", 125, y + 4.2, { align: "center" });
-  doc.text("Votos Presidente", 155, y + 4.2, { align: "center" });
-  doc.text("Condición", 178, y + 4.2, { align: "center" });
-  y += 6;
-
-  // Filas
+  doc.rect(20, y, 170, 6.5, "F");
+  doc.setFontSize(8.5);
+  doc.setTextColor(...dark);
+  doc.text("Candidato", 22, y + 4.5);
+  doc.text("Brigada", 92, y + 4.5, { align: "center" });
+  doc.text("Votos miembro", 117, y + 4.5, { align: "center" });
+  doc.text("Votos presidente", 145, y + 4.5, { align: "center" });
+  doc.text("Condición", 175, y + 4.5, { align: "center" });
+  y += 6.5;
   doc.setFont("helvetica", "normal");
-  tally.totals.forEach((row, idx) => {
+  data.rows.forEach((row, idx) => {
+    ensureSpace(6);
     if (idx % 2 === 1) {
-      doc.setFillColor(250, 250, 250);
-      doc.rect(20, y, 170, 5, "F");
+      doc.setFillColor(248, 248, 248);
+      doc.rect(20, y, 170, 5.5, "F");
     }
-
-    doc.setFont("helvetica", row.isPresident ? "bold" : "normal");
-    doc.setTextColor(row.isPresident ? 143 : 40, row.isPresident ? 22 : 40, row.isPresident ? 57 : 40);
-
-    doc.text(row.fullName, 23, y + 3.8);
-    doc.text(row.brigadeCode, 95, y + 3.8, { align: "center" });
-    doc.text(String(row.memberVotes), 125, y + 3.8, { align: "center" });
-    doc.text(String(row.presidentVotes), 155, y + 3.8, { align: "center" });
-
-    const condicion = row.isPresident ? "Presidente Electo" : row.isElected ? "Electo al Secretariado" : "No electo";
-    doc.text(condicion, 178, y + 3.8, { align: "center" });
-
-    y += 5;
+    doc.text(doc.splitTextToSize(row.fullName, 58)[0] as string, 22, y + 4);
+    doc.text(row.brigadeCode, 92, y + 4, { align: "center" });
+    doc.text(String(row.memberVotes), 117, y + 4, { align: "center" });
+    doc.text(String(row.presidentVotes), 145, y + 4, { align: "center" });
+    doc.text(row.condition, 175, y + 4, { align: "center" });
+    y += 5.5;
   });
 
-  // 6. Composición Actualizada del Secretariado si existe versionado de vacantes
-  if (composition && composition.version > 1) {
-    y += 4;
-    doc.setFont("helvetica", "bold");
-    doc.setFontSize(8.5);
-    doc.setTextColor(...feuRed);
-    doc.text(`ACTUALIZACIÓN DE COMPOSICIÓN · VERSIÓN ${composition.version}`, 20, y);
-    y += 4;
+  y += 6;
+  ensureSpace(30);
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "bold");
+  doc.text(`Presidente: ${data.presidentName}`, 20, y);
+  y += 5;
+  if (data.electedPresidentName) {
     doc.setFont("helvetica", "normal");
-    doc.setFontSize(7.5);
-    doc.setTextColor(60, 60, 60);
-    doc.text(`Motivo reglamentario: ${composition.reason} (Arts. 99–102 del ABC)`, 20, y);
-    y += 3.5;
-    doc.text(`Presidente en funciones: ${composition.president.fullName} | Vicepresidente: ${composition.vicePresident?.fullName || "Vacante"}`, 20, y);
-    y += 4;
+    doc.text(`Presidente electo: ${data.electedPresidentName}`, 20, y);
+    y += 5;
+    doc.setFont("helvetica", "bold");
+  }
+  doc.text(`Vicepresidente: ${data.vicePresidentName ?? "Pendiente de designación"}`, 20, y);
+  y += 7;
+
+  doc.setFont("helvetica", "normal");
+  if (data.tieSentence) {
+    const t = doc.splitTextToSize(data.tieSentence, 170);
+    ensureSpace(t.length * 4.4 + 4);
+    doc.text(t, 20, y);
+    y += t.length * 4.4 + 3;
   }
 
-  // 7. Cláusula de Validez y Criptografía
-  y += 6;
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(7.5);
-  doc.setTextColor(80, 80, 80);
-  const legalText =
-    "Habiéndose verificado las condiciones estatutarias de participación y el principio inviolable de voto secreto en urna ciega, la Comisión Electoral declara formalmente válida esta elección conforme a los Artículos 38, 40, 59, 61, 63 y 67 del ABC de la FEU (2019).";
-  const splitLegal = doc.splitTextToSize(legalText, 170);
-  doc.text(splitLegal, 20, y);
-  y += splitLegal.length * 3.5 + 4;
-
-  // Hash SHA-256
-  doc.setFont("courier", "normal");
-  doc.setFontSize(7);
-  doc.text(`Sello Criptográfico SHA-256: ${candidacyHash}`, 20, y);
-  y += 14;
-
-  // 8. Bloque de Firmas de la Comisión Electoral
-  doc.setFont("helvetica", "bold");
+  ensureSpace(14);
   doc.setFontSize(8);
-  doc.setTextColor(...darkGray);
-
-  // Líneas de firma
-  doc.setDrawColor(150, 150, 150);
-  doc.line(40, y, 90, y);
-  doc.line(120, y, 170, y);
-
-  doc.text("Liz", 65, y + 4, { align: "center" });
-  doc.text("Revisor", 145, y + 4, { align: "center" });
+  doc.text("Huella digital del resultado:", 20, y);
+  y += 4;
+  doc.setFont("courier", "normal");
+  doc.text(data.resultHash, 20, y);
+  y += 16;
 
   doc.setFont("helvetica", "normal");
-  doc.setFontSize(7);
-  doc.setTextColor(100, 100, 100);
-  doc.text("Presidenta de la Comisión", 65, y + 7.5, { align: "center" });
-  doc.text("Revisor / 2do Miembro", 145, y + 7.5, { align: "center" });
+  doc.setFontSize(9);
+  if (data.signatures.length === 0) {
+    doc.text("Firmas de la Comisión Electoral: (Comisión no registrada)", 20, y);
+  } else {
+    const colX = [55, 145];
+    data.signatures.forEach((s, i) => {
+      const col = i % 2;
+      if (col === 0) ensureSpace(20);
+      const x = colX[col] as number;
+      doc.setDrawColor(150, 150, 150);
+      doc.line(x - 28, y, x + 28, y);
+      doc.setFont("helvetica", "bold");
+      doc.text(s.name, x, y + 4.5, { align: "center" });
+      doc.setFont("helvetica", "normal");
+      doc.text(s.office, x, y + 9, { align: "center" });
+      if (col === 1 || i === data.signatures.length - 1) y += 22;
+    });
+  }
 
-  // Pie de página
-  doc.setFontSize(6.5);
+  doc.setFontSize(8);
+  doc.setTextColor(90, 90, 90);
   doc.text(
-    `Documento oficial expedido el ${new Date().toLocaleDateString("es-ES", { year: "numeric", month: "long", day: "numeric" })} · FEU Informática CUJAE`,
+    `Expedida el ${data.issuedAt.toLocaleDateString("es-ES", { year: "numeric", month: "long", day: "numeric" })} · Facultad de Ingeniería Informática, CUJAE`,
     105,
-    285,
+    288,
     { align: "center" },
   );
 
-  // Descargar archivo
-  doc.save(`Acta-Escrutinio-FEU-Informatica-${new Date().toISOString().slice(0, 10)}.pdf`);
+  return doc.output("arraybuffer");
 }

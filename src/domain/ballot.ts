@@ -72,24 +72,24 @@ export function validateBallot(
       code: "MARCA_MIEMBRO_CERO",
       message:
         rules.minMemberMarks === 0
-          ? "No marcaste ningún miembro."
-          : `Marcaste ${memberCount} miembros y el mínimo es ${rules.minMemberMarks}.`,
+          ? "No marcó ningún miembro."
+          : `Marcó ${memberCount} miembros y el mínimo es ${rules.minMemberMarks}.`,
     });
   }
   if (memberCount > rules.maxMemberMarks) {
     errors.push({
       code: "MARCA_MIEMBRO_EXCESO",
-      message: `Marcaste ${memberCount} miembros y el máximo es ${rules.maxMemberMarks}.`,
+      message: `Marcó ${memberCount} miembros y el máximo es ${rules.maxMemberMarks}.`,
     });
   }
 
   if (presidentSelections.length !== rules.presidentMarks) {
     errors.push(
       presidentSelections.length === 0
-        ? { code: "MARCA_PRESIDENTE_CERO", message: "No marcaste a ningún presidente." }
+        ? { code: "MARCA_PRESIDENTE_CERO", message: "No marcó a ningún presidente." }
         : {
             code: "MARCA_PRESIDENTE_MULTIPLE",
-            message: `Marcaste ${presidentSelections.length} presidentes y solo se permite uno.`,
+            message: `Marcó ${presidentSelections.length} presidentes y solo se permite uno.`,
           },
     );
   }

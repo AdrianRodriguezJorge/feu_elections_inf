@@ -1,27 +1,14 @@
 "use client";
 
 import Image from "next/image";
-import {
-  Key,
-  BookOpen,
-  Search,
-  Vote,
-  BarChart3,
-  Eye,
-  Landmark,
-  LogOut,
-  type LucideIcon,
-} from "lucide-react";
+import { BookOpen, Vote, BarChart3, Eye, Landmark, LogOut, type LucideIcon } from "lucide-react";
 import type { SessionUser } from "@/lib/session-user";
+import { RESULTS_PUBLIC_STATUSES } from "@/domain/states";
+import type { ProcessStatus } from "@/domain/types";
+import { STATUS_COLORS, statusLabel } from "@/lib/status-labels";
+import { cn } from "@/lib/utils";
 
-export type ActiveTab =
-  | "LOGIN"
-  | "VOTACION"
-  | "ADMIN"
-  | "RESULTADOS"
-  | "REGLAMENTO"
-  | "OBSERVADOR"
-  | "VERIFICAR";
+export type ActiveTab = "VOTACION" | "ADMIN" | "RESULTADOS" | "REGLAMENTO" | "OBSERVADOR";
 
 interface HeaderProps {
   activeTab: ActiveTab;
@@ -29,132 +16,73 @@ interface HeaderProps {
   status: string;
   totalVotes: number;
   totalEligible: number;
-  currentUser?: SessionUser | null;
-  onOpenAuth?: () => void;
-  onLogout?: () => void;
+  currentUser: SessionUser;
+  onLogout: () => void;
 }
 
-export function Header({
-  activeTab,
-  onTabChange,
-  status,
-  totalVotes,
-  totalEligible,
-  currentUser,
-  onOpenAuth,
-  onLogout,
-}: HeaderProps) {
-  const statusColor: Record<string, string> = {
-    ABIERTA: "bg-emerald-600 text-white",
-    CERRADA: "bg-amber-600 text-white",
-    ESCRUTADA: "bg-blue-600 text-white",
-    PROCLAMADA: "bg-purple-600 text-white",
-    VP_DESIGNADA: "bg-indigo-600 text-white",
-    BORRADOR: "bg-gray-600 text-white",
-  };
+interface NavItem {
+  id: ActiveTab;
+  label: string;
+  icon: LucideIcon;
+}
 
-  const roleStyles: Record<string, { label: string; badge: string }> = {
-    ADMIN: {
-      label: "ADMIN",
-      badge: "bg-purple-100 text-purple-900 border-purple-200",
-    },
-    COMMISSION: {
-      label: "COMISIÓN",
-      badge: "bg-sky-100 text-sky-900 border-sky-200",
-    },
-    VOTER: {
-      label: "ELECTOR",
-      badge: "bg-emerald-100 text-emerald-900 border-emerald-200",
-    },
-    OBSERVER: {
-      label: "OBSERVADOR",
-      badge: "bg-amber-100 text-amber-900 border-amber-300",
-    },
-  };
+const ROLE_STYLES: Record<string, { label: string; badge: string }> = {
+  ADMIN: { label: "Administración", badge: "bg-purple-100 text-purple-900 border-purple-200" },
+  COMMISSION: { label: "Comisión", badge: "bg-sky-100 text-sky-900 border-sky-200" },
+  VOTER: { label: "Elector", badge: "bg-cujae-green-50 text-cujae-green-700 border-cujae-green-100" },
+  OBSERVER: { label: "Observador", badge: "bg-amber-100 text-amber-900 border-amber-300" },
+};
 
-  interface NavItem {
-    id: ActiveTab;
-    label: string;
-    icon: LucideIcon;
+/** Pestañas autorizadas según el rol: no se muestra lo que el usuario no puede hacer. */
+function navItemsFor(role: SessionUser["role"], status: string): NavItem[] {
+  if (role === "VOTER") {
+    const items: NavItem[] = [
+      { id: "VOTACION", label: "Mi Boleta", icon: Vote },
+      { id: "REGLAMENTO", label: "Reglamento", icon: BookOpen },
+    ];
+    if (RESULTS_PUBLIC_STATUSES.includes(status as ProcessStatus) || status === "SIN_QUORUM") {
+      items.push({ id: "RESULTADOS", label: "Escrutinio", icon: BarChart3 });
+    }
+    return items;
   }
-
-  // Principio de diseño: "No mostrar al usuario lo que no puede hacer"
-  const getAuthorizedNavItems = (): NavItem[] => {
-    if (!currentUser) {
-      return [
-        { id: "LOGIN", label: "Acceso al Sistema", icon: Key },
-        { id: "REGLAMENTO", label: "Reglamento", icon: BookOpen },
-        { id: "VERIFICAR", label: "Verificar Boleta", icon: Search },
-      ];
-    }
-
-    if (currentUser.role === "VOTER") {
-      const items: NavItem[] = [
-        { id: "VOTACION", label: "Mi Boleta", icon: Vote },
-        { id: "REGLAMENTO", label: "Reglamento", icon: BookOpen },
-      ];
-      if (["PROCLAMADA", "VP_DESIGNADA", "FINALIZADA"].includes(status)) {
-        items.push({ id: "RESULTADOS", label: "Resultados Oficiales", icon: BarChart3 });
-      }
-      return items;
-    }
-
-    if (currentUser.role === "OBSERVER") {
-      const items: NavItem[] = [
-        { id: "OBSERVADOR", label: "Observación", icon: Eye },
-        { id: "REGLAMENTO", label: "Reglamento", icon: BookOpen },
-      ];
-      if (status !== "ABIERTA" && status !== "BORRADOR") {
-        items.push({ id: "RESULTADOS", label: "Escrutinio", icon: BarChart3 });
-      }
-      items.push({ id: "VOTACION", label: "Mi Boleta", icon: Vote });
-      return items;
-    }
-
-    // ADMIN y COMMISSION
-    return [
-      { id: "ADMIN", label: "Administración", icon: Landmark },
-      { id: "RESULTADOS", label: "Escrutinio", icon: BarChart3 },
+  if (role === "OBSERVER") {
+    const items: NavItem[] = [
       { id: "OBSERVADOR", label: "Observación", icon: Eye },
       { id: "REGLAMENTO", label: "Reglamento", icon: BookOpen },
-      { id: "VOTACION", label: "Mi Boleta", icon: Vote },
     ];
-  };
+    if (status !== "ABIERTA" && status !== "CONVOCADO") {
+      items.push({ id: "RESULTADOS", label: "Escrutinio", icon: BarChart3 });
+    }
+    items.push({ id: "VOTACION", label: "Mi Boleta", icon: Vote });
+    return items;
+  }
+  return [
+    { id: "ADMIN", label: "Administración", icon: Landmark },
+    { id: "RESULTADOS", label: "Escrutinio", icon: BarChart3 },
+    { id: "OBSERVADOR", label: "Observación", icon: Eye },
+    { id: "REGLAMENTO", label: "Reglamento", icon: BookOpen },
+    { id: "VOTACION", label: "Mi Boleta", icon: Vote },
+  ];
+}
 
-  const navItems = getAuthorizedNavItems();
+export function Header({ activeTab, onTabChange, status, totalVotes, totalEligible, currentUser, onLogout }: HeaderProps) {
+  const navItems = navItemsFor(currentUser.role, status);
+  const showTurnout = currentUser.role !== "VOTER";
+  const roleStyle = ROLE_STYLES[currentUser.role];
+  const displayName = currentUser.name || currentUser.ci;
 
   return (
-    <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/95 backdrop-blur-md shadow-xs">
-      <div className="mx-auto flex max-w-7xl flex-col gap-3 px-3 py-3 sm:px-6 sm:py-3.5 sm:flex-row sm:items-center sm:justify-between">
-        {/* Identidad Institucional con los 3 logos oficiales */}
-        <div className="flex items-center gap-2 sm:gap-3">
-          <div className="flex items-center gap-1.5 sm:gap-2">
-            {/* Logo CUJAE */}
-            <div className="relative h-10 w-10 sm:h-12 sm:w-12 shrink-0">
-              <Image
-                src="/logos/cujae_rgba.png"
-                alt="Logo CUJAE"
-                fill
-                sizes="48px"
-                className="object-contain"
-                priority
-              />
+    <header className="sticky top-0 z-40 border-b border-gray-200 bg-white/95 shadow-xs backdrop-blur-md">
+      <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:px-6 xl:flex-row xl:items-center xl:justify-between">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+            <div className="relative h-10 w-10 shrink-0 sm:h-12 sm:w-12">
+              <Image src="/logos/cujae_rgba.png" alt="Logo CUJAE" fill sizes="48px" className="object-contain" priority />
             </div>
-
-            {/* Logo FEU Oficial */}
-            <div className="relative h-10 w-10 sm:h-12 sm:w-12 shrink-0">
-              <Image
-                src="/logos/feu_512.png"
-                alt="Logo FEU"
-                fill
-                sizes="48px"
-                className="object-contain"
-                priority
-              />
+            <div className="relative h-10 w-10 shrink-0 sm:h-12 sm:w-12">
+              <Image src="/logos/feu_512.png" alt="Logo FEU" fill sizes="48px" className="object-contain" priority />
             </div>
-
-            {/* Logo Facultad de Informática (Amarillo distintivo) */}
-            <div className="relative h-10 w-10 sm:h-12 sm:w-12 shrink-0">
+            <div className="relative h-10 w-10 shrink-0 sm:h-12 sm:w-12">
               <Image
                 src="/logos/informatica_512.png"
                 alt="Logo Facultad de Ingeniería Informática"
@@ -166,95 +94,84 @@ export function Header({
             </div>
           </div>
 
-          <div className="h-8 w-px bg-gray-200 hidden sm:block" />
+          <div className="hidden h-8 w-px bg-gray-200 sm:block" />
 
-          {/* Textos Institucionales */}
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h1 className="text-sm sm:text-lg font-bold tracking-tight text-gray-900 truncate">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="truncate text-sm font-bold tracking-tight text-gray-900 sm:text-lg">
                 Facultad de Ingeniería Informática
               </h1>
               <span
-                className={`rounded-full px-2.5 py-0.5 text-[10px] sm:text-xs font-semibold shrink-0 ${
-                  statusColor[status] ?? "bg-gray-600 text-white"
-                }`}
+                className={cn(
+                  "shrink-0 rounded-full px-2.5 py-0.5 text-xs font-semibold",
+                  STATUS_COLORS[status] ?? "bg-gray-700 text-white",
+                )}
               >
-                {status}
+                {statusLabel(status)}
               </span>
             </div>
-            <p className="text-[11px] sm:text-xs text-gray-600 truncate">
-              Elección del Secretariado · Sufragio:{" "}
-              <strong className="text-gray-900">
-                {totalVotes} de {totalEligible}
-              </strong>{" "}
-              electores
+            <p className="truncate text-xs text-gray-700 sm:text-sm">
+              Elección del Secretariado
+              {showTurnout && (
+                <>
+                  {" "}
+                  · Han votado <strong className="text-gray-900">{totalVotes} de {totalEligible}</strong> electores
+                </>
+              )}
             </p>
           </div>
         </div>
 
-        {/* Barra de Navegación Estricta por Roles */}
-        <div className="flex flex-wrap items-center gap-2 justify-between sm:justify-end">
-          <nav className="flex items-center gap-1 overflow-x-auto pb-1 sm:pb-0 scrollbar-none -mx-1 px-1">
-            {navItems.map((item) => (
-              <button
-                key={item.id}
-                onClick={() => onTabChange(item.id)}
-                className={`flex shrink-0 items-center gap-1.5 rounded-lg px-2.5 py-1.5 sm:px-3 sm:py-2 text-xs sm:text-sm font-semibold transition-colors cursor-pointer ${
-                  activeTab === item.id
-                    ? "bg-[#136D54] text-white shadow-xs"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-                }`}
-              >
-                <item.icon className="h-4 w-4 shrink-0" strokeWidth={1.8} />
-                <span>{item.label}</span>
-              </button>
-            ))}
+        <div className="flex flex-wrap items-center justify-between gap-2 xl:justify-end">
+          <nav aria-label="Secciones" className="min-w-0">
+            <ul className="flex flex-wrap items-center gap-1">
+              {navItems.map((item) => {
+                const active = activeTab === item.id;
+                return (
+                  <li key={item.id}>
+                    <button
+                      type="button"
+                      onClick={() => onTabChange(item.id)}
+                      aria-current={active ? "page" : undefined}
+                      className={cn(
+                        "flex min-h-11 cursor-pointer items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-semibold transition-colors",
+                        active ? "bg-cujae-green-500 text-white shadow-xs" : "bg-gray-100 text-gray-800 hover:bg-gray-200",
+                      )}
+                    >
+                      <item.icon className="h-4 w-4 shrink-0" strokeWidth={1.8} aria-hidden="true" />
+                      <span>{item.label}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           </nav>
 
-          {/* Estado de Autenticación / Perfil */}
-          <div className="flex items-center gap-1.5 shrink-0 pl-1 border-l border-gray-200">
-            {currentUser ? (
-              <div className="flex items-center gap-1.5">
-                <div
-                  className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs shadow-2xs"
-                  title={`Conectado como ${currentUser.name || currentUser.ci}`}
-                >
-                  <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <span className="font-semibold text-gray-800 truncate max-w-[130px]">
-                    {currentUser.name || currentUser.ci}
-                  </span>
-                  <span
-                    className={`rounded px-1.5 py-0.5 text-[9px] font-bold border ${
-                      roleStyles[currentUser.role]?.badge || "bg-gray-100 text-gray-700 border-gray-200"
-                    }`}
-                  >
-                    {roleStyles[currentUser.role]?.label || currentUser.role}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={onLogout}
-                  className="rounded-lg p-1.5 text-xs text-gray-500 hover:text-red-700 hover:bg-red-50 border border-transparent hover:border-red-200 transition-colors cursor-pointer"
-                  title="Cerrar Sesión"
-                  aria-label="Cerrar Sesión"
-                >
-                  <LogOut className="h-4 w-4" strokeWidth={1.8} />
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={() => (onOpenAuth ? onOpenAuth() : onTabChange("LOGIN"))}
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-bold shadow-xs transition-all cursor-pointer ${
-                  activeTab === "LOGIN"
-                    ? "bg-[#136D54] text-white"
-                    : "bg-emerald-50 text-[#136D54] hover:bg-emerald-100 border border-emerald-200"
-                }`}
+          <div className="flex min-w-0 shrink-0 items-center gap-1.5 border-l border-gray-200 pl-2">
+            <div
+              className="flex min-w-0 items-center gap-1.5 rounded-lg border border-gray-200 bg-gray-50 px-2.5 py-1 text-xs"
+              title={`Sesión iniciada como ${displayName}`}
+            >
+              <span className="h-2 w-2 shrink-0 rounded-full bg-cujae-green-500" aria-hidden="true" />
+              <span className="max-w-[130px] truncate font-semibold text-gray-900">{displayName}</span>
+              <span
+                className={cn(
+                  "rounded border px-1.5 py-0.5 text-xs font-bold",
+                  roleStyle?.badge ?? "border-gray-200 bg-gray-100 text-gray-800",
+                )}
               >
-                <Key className="h-3.5 w-3.5 shrink-0" strokeWidth={1.8} />
-                <span>Iniciar Sesión</span>
-              </button>
-            )}
+                {roleStyle?.label ?? "Usuario"}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={onLogout}
+              className="inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-lg border border-transparent text-gray-700 transition-colors hover:border-red-200 hover:bg-red-50 hover:text-red-800"
+              title="Cerrar sesión"
+              aria-label="Cerrar sesión"
+            >
+              <LogOut className="h-5 w-5" strokeWidth={1.8} aria-hidden="true" />
+            </button>
           </div>
         </div>
       </div>

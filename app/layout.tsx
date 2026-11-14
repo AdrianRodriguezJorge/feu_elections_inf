@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { ConfirmProvider } from "@/components/ui/confirm";
 
 export const metadata: Metadata = {
   title: "Elecciones FEU · Facultad de Ingeniería Informática (CUJAE)",
@@ -19,7 +20,9 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="es">
-      <body>{children}</body>
+      <body>
+        <ConfirmProvider>{children}</ConfirmProvider>
+      </body>
     </html>
   );
 }

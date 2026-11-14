@@ -21,7 +21,7 @@ export async function requireSession(): Promise<GuardResult> {
   if (!user?.ci || !user.role) {
     return {
       ok: false,
-      response: NextResponse.json({ ok: false, error: "Debes iniciar sesión." }, { status: 401 }),
+      response: NextResponse.json({ ok: false, error: "Debe iniciar sesión." }, { status: 401 }),
     };
   }
   return { ok: true, user };
@@ -34,7 +34,7 @@ export async function requirePermission(action: Action): Promise<GuardResult> {
     return {
       ok: false,
       response: NextResponse.json(
-        { ok: false, error: "Tu rol no tiene permiso para realizar esta acción." },
+        { ok: false, error: "Su rol no tiene permiso para realizar esta acción." },
         { status: 403 },
       ),
     };
@@ -81,7 +81,7 @@ export function errorResponse(err: unknown): NextResponse {
   }
   console.error("[api] error inesperado:", err);
   return NextResponse.json(
-    { ok: false, error: "El sistema electoral no está disponible en este momento. Inténtalo de nuevo en unos minutos." },
+    { ok: false, error: "El sistema electoral no está disponible en este momento. Inténtelo de nuevo en unos minutos." },
     { status: 503 },
   );
 }

@@ -278,7 +278,7 @@ export function resolveTie(result: TallyResult, seats: number, choice: TieChoice
     if (chosen.length !== remaining || chosen.some((id) => !tied.has(id))) {
       return {
         ok: false,
-        error: `Debes elegir exactamente ${remaining} candidato(s) entre los empatados para completar los ${seats} puestos.`,
+        error: `Debe elegir exactamente ${remaining} candidato(s) entre los empatados para completar los ${seats} puestos.`,
       };
     }
     chosenIds = chosen;
@@ -301,7 +301,7 @@ export function resolveTie(result: TallyResult, seats: number, choice: TieChoice
   } else if (choice.presidentId && presidentPool.includes(choice.presidentId)) {
     presidentId = choice.presidentId;
   } else {
-    return { ok: false, error: "Elige al presidente entre los candidatos empatados en votos de presidente." };
+    return { ok: false, error: "Elija al presidente entre los candidatos empatados en votos de presidente." };
   }
 
   return {

@@ -5,8 +5,8 @@ import { errorResponse, parseBody, requirePermission } from "@/server/guard";
 
 const schema = z.object({
   pct: z.number().min(MIN_QUORUM_EXCEPTION_PCT).max(FACULTY_QUORUM_PCT),
-  justification: z.string().trim().min(10, "Explica por qué se aprueba la excepción (al menos 10 caracteres)."),
-  acta: z.string().trim().min(3, "Indica el acta o la resolución que aprueba la excepción."),
+  justification: z.string().trim().min(10, "Explique por qué se aprueba la excepción (al menos 10 caracteres)."),
+  acta: z.string().trim().min(3, "Indique el acta o la resolución que aprueba la excepción."),
 });
 
 /**

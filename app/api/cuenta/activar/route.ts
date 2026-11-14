@@ -18,7 +18,7 @@ export async function POST(request: Request) {
   const rl = checkRateLimit(`activar:${clientIp(request.headers)}`, 10, 60_000);
   if (!rl.allowed) {
     return NextResponse.json(
-      { ok: false, error: `Demasiados intentos. Espera ${rl.resetSeconds} segundos.` },
+      { ok: false, error: `Demasiados intentos. Espere ${rl.resetSeconds} segundos.` },
       { status: 429, headers: { "Retry-After": String(rl.resetSeconds) } },
     );
   }
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
     await recordAudit(ci, "VOTER", "CUENTA_ACTIVADA", {});
     return NextResponse.json({
       ok: true,
-      message: `Cuenta activada, ${result.name}. Ya puedes iniciar sesión con tu carnet y tu nueva contraseña.`,
+      message: `Cuenta activada, ${result.name}. Ya puede iniciar sesión con su carnet y su nueva contraseña.`,
     });
   } catch (err) {
     return errorResponse(err);

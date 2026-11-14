@@ -8,9 +8,12 @@
 @theme {
   --color-feu-green-50: oklch(97% 0.02 150);
   --color-feu-green-100: oklch(93% 0.05 150);
+  --color-feu-green-200: oklch(87% 0.09 150);
   --color-feu-green-300: oklch(80% 0.13 150);
+  --color-feu-green-400: oklch(73% 0.15 150);
   --color-feu-green-500: oklch(66% 0.16 150);
   --color-feu-green-700: oklch(48% 0.13 150);
+  --color-feu-green-800: oklch(40% 0.11 150);
   --color-feu-green-900: oklch(32% 0.08 150);
 
   --color-feu-yellow-50: oklch(98% 0.03 95);
@@ -43,4 +46,17 @@
 body {
   background-color: var(--color-feu-green-50);
   color: var(--color-feu-green-900);
+}
+
+/* Foco siempre visible al navegar con teclado (WCAG 2.4.7). */
+:focus-visible {
+  outline: 3px solid var(--color-cujae-green-500);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

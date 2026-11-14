@@ -120,7 +120,7 @@ export async function activateAccount(
       ok: false,
       status: 409,
       error:
-        "El plazo de activación terminó: las cuentas solo se activan antes de abrir la votación. Contacta a la Comisión Electoral.",
+        "El plazo de activación terminó: las cuentas solo se activan antes de abrir la votación. Contacte a la Comisión Electoral.",
     };
   }
 
@@ -130,7 +130,7 @@ export async function activateAccount(
   }
 
   if (password === ci) {
-    return { ok: false, status: 422, error: "La contraseña no puede ser tu carnet de identidad." };
+    return { ok: false, status: 422, error: "La contraseña no puede ser su carnet de identidad." };
   }
   const strength = validatePasswordStrength(password);
   if (!strength.valid) {
@@ -142,7 +142,7 @@ export async function activateAccount(
     return {
       ok: false,
       status: 404,
-      error: "Este carnet no figura como elector habilitado. Si crees que es un error, contacta a la Comisión Electoral.",
+      error: "Este carnet no figura como elector habilitado. Si cree que es un error, contacte a la Comisión Electoral.",
     };
   }
 
@@ -152,7 +152,7 @@ export async function activateAccount(
       ok: false,
       status: 409,
       error:
-        "Esta cuenta ya fue activada. Si no fuiste tú, avisa a la Comisión Electoral para que la restablezca antes de que abra la votación.",
+        "Esta cuenta ya fue activada. Si no fue usted, avise a la Comisión Electoral para que la restablezca antes de que abra la votación.",
     };
   }
 

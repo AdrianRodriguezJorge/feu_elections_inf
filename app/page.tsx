@@ -124,8 +124,11 @@ export default function Home() {
           <div className="my-auto w-full flex justify-center">
           {isLoading ? (
             <div className="text-center">
-              <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-[#136D54] border-r-transparent" />
-              <p className="mt-2 text-xs text-gray-500">Cargando portal institucional...</p>
+              <div
+                className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-solid border-cujae-green-500 border-r-transparent"
+                aria-hidden="true"
+              />
+              <p role="status" className="mt-2 text-sm text-gray-700">Cargando…</p>
             </div>
           ) : (
             <LoginCard onLoginSuccess={refreshSession} />
@@ -155,7 +158,7 @@ export default function Home() {
         onLogout={handleLogout}
       />
 
-      <main className="flex-1 px-4 py-6 max-w-7xl mx-auto w-full">
+      <main className="flex-1 px-4 py-6 max-w-7xl mx-auto w-full min-w-0">
         {activeTab === "VOTACION" && (
           <VoterBallot
             candidates={candidates}

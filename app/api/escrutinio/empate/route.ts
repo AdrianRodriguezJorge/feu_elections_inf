@@ -6,8 +6,8 @@ import { errorResponse, parseBody, requirePermission } from "@/server/guard";
 const schema = z.object({
   electedIds: z.array(z.string().min(1)).max(50).optional(),
   presidentId: z.string().min(1).optional(),
-  justification: z.string().trim().min(10, "Explica el motivo de la decisión (al menos 10 caracteres)."),
-  acta: z.string().trim().min(3, "Indica el número o la referencia del acta de la Comisión."),
+  justification: z.string().trim().min(10, "Explique el motivo de la decisión (al menos 10 caracteres)."),
+  acta: z.string().trim().min(3, "Indique el número o la referencia del acta de la Comisión."),
 });
 
 /**

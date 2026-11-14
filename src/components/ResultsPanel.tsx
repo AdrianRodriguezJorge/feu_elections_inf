@@ -2,21 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Image from "next/image";
+import { Lock, Archive, Zap, AlertTriangle, Star, Download, FileText, Check, X, Scale, Printer } from "lucide-react";
+import type { SecretariatComposition, VacancyEvent, VacancyReason } from "@/domain/vacancies";
+import { Button } from "@/components/ui/button";
+import { useConfirm } from "@/components/ui/confirm";
 import {
-  Lock,
-  Archive,
-  Zap,
-  AlertTriangle,
-  Star,
-  Download,
-  FileSpreadsheet,
-  Check,
-  X,
-  Scale,
-  Printer,
-} from "lucide-react";
-import { generateActaPdf } from "@/utils/pdfActa";
-import { SecretariatComposition, VacancyReason } from "@/domain/vacancies";
+  VACANCY_REASON_LABELS,
+  formatDate,
+  formatDateTime,
+  formatPct,
+  officeLabel,
+  statusLabel,
+} from "@/lib/status-labels";
 
 interface EnrichedTotal {
   candidateId: string;
@@ -28,6 +25,11 @@ interface EnrichedTotal {
   isPresident: boolean;
 }
 
+interface CommissionMember {
+  name: string;
+  office: string;
+}
+
 interface ResultsPanelProps {
   status: string;
   role: string;
@@ -37,6 +39,28 @@ interface ResultsPanelProps {
   onRefresh: () => void;
 }
 
+const OFFICE_ORDER: Record<string, number> = { PRESIDENT: 0, VICE_PRESIDENT: 1, SECRETARY: 2, MEMBER: 3 };
+
+const ROLE_LABELS: Record<string, string> = {
+  PRESIDENTE: "la Presidencia",
+  VICEPRESIDENTE: "la Vicepresidencia",
+  MIEMBRO: "un puesto del Secretariado",
+};
+
+/** Describe un evento del historial del Secretariado en lenguaje claro. */
+function describeEvent(ev: VacancyEvent): string {
+  const role = ROLE_LABELS[ev.vacatedRole] ?? "un cargo";
+  if (ev.outgoingCandidateId && ev.outgoingFullName && ev.vacatedRole !== "VICEPRESIDENTE") {
+    const reason = VACANCY_REASON_LABELS[ev.reason] ?? "otro motivo";
+    const successor = ev.successorFullName ? ` Asumió el cargo ${ev.successorFullName}.` : " El cargo quedó pendiente de cubrir.";
+    return `${ev.outgoingFullName} dejó ${role} por ${reason}.${successor}`;
+  }
+  if (ev.successorFullName) return `Se designó a ${ev.successorFullName} para ${role}.`;
+  return `Se registró un cambio en ${role}.`;
+}
+
+const inputCls = "w-full min-h-11 rounded-lg border border-gray-300 bg-white p-2 text-sm text-gray-900";
+
 export function ResultsPanel({
   status,
   role,
@@ -45,6 +69,7 @@ export function ResultsPanel({
   minParticipationPercentage,
   onRefresh,
 }: ResultsPanelProps) {
+  const confirm = useConfirm();
   const [isTallying, setIsTallying] = useState(false);
   const [tallyData, setTallyData] = useState<{
     quorum: { participations: number; participationPct: number; quorumMet: boolean };
@@ -57,13 +82,12 @@ export function ResultsPanel({
     };
   } | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [commission, setCommission] = useState<CommissionMember[]>([]);
 
-  // Vicepresidencia y Composición
   const [selectedVpId, setSelectedVpId] = useState<string>("");
-  const [vpDesignationMsg, setVpDesignationMsg] = useState<string | null>(null);
+  const [vpDesignationMsg, setVpDesignationMsg] = useState<{ success: boolean; message: string } | null>(null);
   const [composition, setComposition] = useState<SecretariatComposition | null>(null);
 
-  // Gestión de Vacantes (Arts. 99–102)
   const [showVacancyForm, setShowVacancyForm] = useState(false);
   const [vacancyReason, setVacancyReason] = useState<VacancyReason>("DIMISION_VOLUNTARIA");
   const [vacancyJustification, setVacancyJustification] = useState("");
@@ -73,15 +97,13 @@ export function ResultsPanel({
   const [councilAttendance, setCouncilAttendance] = useState("");
   const [councilInFavor, setCouncilInFavor] = useState("");
 
-  // Designación de nuevo Vicepresidente tras vacancia
   const [newVpSuccessorId, setNewVpSuccessorId] = useState("");
   const [isDesignatingNewVp, setIsDesignatingNewVp] = useState(false);
 
   const isAuthority = role === "ADMIN" || role === "COMMISSION";
-  // Sin quórum o con empate pendiente no hay proclamación (Art. 38 y decisión F2).
+  // Sin quórum o con empate pendiente no hay proclamación.
   const canProclaim = status !== "SIN_QUORUM" && status !== "EMPATE";
 
-  // Decisión de la Comisión sobre un empate
   const [tieResolution, setTieResolution] = useState<{ justification: string; acta: string } | null>(null);
   const [tieChosen, setTieChosen] = useState<string[]>([]);
   const [tiePresident, setTiePresident] = useState("");
@@ -89,7 +111,6 @@ export function ResultsPanel({
   const [tieActa, setTieActa] = useState("");
   const [tieMsg, setTieMsg] = useState<string | null>(null);
 
-  // Resultados persistidos en el servidor (fuente de verdad)
   const loadResults = useCallback(async () => {
     try {
       const res = await fetch("/api/eleccion/estado");
@@ -98,6 +119,11 @@ export function ResultsPanel({
       setComposition(data.composition ?? null);
       if (data.designatedVpId) setSelectedVpId(data.designatedVpId);
       setTieResolution(data.tieResolution ?? null);
+      setCommission(
+        [...((data.commission ?? []) as CommissionMember[])].sort(
+          (a, b) => (OFFICE_ORDER[a.office] ?? 9) - (OFFICE_ORDER[b.office] ?? 9),
+        ),
+      );
 
       const t = data.tallyResult;
       const q = data.tallyQuorum;
@@ -106,6 +132,7 @@ export function ResultsPanel({
         return;
       }
       const proclaimed = !["SIN_QUORUM", "EMPATE"].includes(data.summary?.status);
+      const presidentId: string | null = t.resolution?.presidentId ?? t.presidentId;
       const byId = new Map<string, { fullName: string; name: string; brigadeCode: string }>(
         (data.candidates ?? []).map((c: { candidateId: string; fullName: string; name: string; brigadeCode: string }) => [
           c.candidateId,
@@ -118,11 +145,11 @@ export function ResultsPanel({
           fullName: byId.get(x.candidateId)?.fullName ?? x.candidateId,
           brigadeCode: byId.get(x.candidateId)?.brigadeCode ?? "",
           isElected: proclaimed && t.elected.includes(x.candidateId),
-          isPresident: proclaimed && t.presidentId === x.candidateId,
+          isPresident: proclaimed && presidentId === x.candidateId,
         }),
       );
-      const president = proclaimed && t.presidentId ? (byId.get(t.presidentId) ?? null) : null;
-      setTallyData({ quorum: q, tally: { ...t, totals, president } });
+      const president = proclaimed && presidentId ? (byId.get(presidentId) ?? null) : null;
+      setTallyData({ quorum: q, tally: { ...t, presidentId, totals, president } });
     } catch {
       // Se reintenta al volver a la pestaña
     }
@@ -132,9 +159,15 @@ export function ResultsPanel({
     loadResults();
   }, [status, loadResults]);
 
-  // Resolver un empate (Comisión, con acta)
   const handleResolveTie = async () => {
     setTieMsg(null);
+    const ok = await confirm({
+      title: "¿Registrar la decisión de la Comisión?",
+      description: "Se registrará la decisión sobre el empate y se proclamarán los resultados. Esta acción no se puede deshacer.",
+      confirmLabel: "Registrar decisión y proclamar",
+      danger: true,
+    });
+    if (!ok) return;
     try {
       const res = await fetch("/api/escrutinio/empate", {
         method: "POST",
@@ -154,12 +187,17 @@ export function ResultsPanel({
       await loadResults();
       onRefresh();
     } catch {
-      setTieMsg("No pudimos conectar con el servidor. Inténtalo de nuevo.");
+      setTieMsg("No se pudo conectar con el servidor. Inténtelo de nuevo.");
     }
   };
 
-  // Ejecutar escrutinio
   const handleRunTally = async () => {
+    const ok = await confirm({
+      title: "¿Realizar el escrutinio?",
+      description: "El escrutinio se realiza una sola vez y fija el resultado oficial de la elección.",
+      confirmLabel: "Realizar escrutinio",
+    });
+    if (!ok) return;
     setIsTallying(true);
     setErrorMsg(null);
     try {
@@ -172,18 +210,25 @@ export function ResultsPanel({
         setErrorMsg(data.error || "No se pudo realizar el escrutinio.");
       }
     } catch {
-      setErrorMsg("Error de conexión al escrutar.");
+      setErrorMsg("No se pudo conectar con el servidor. Inténtelo de nuevo.");
     } finally {
       setIsTallying(false);
     }
   };
 
-  // Designar Vicepresidente (Art. 67)
   const handleDesignateVp = async () => {
+    setVpDesignationMsg(null);
     if (!selectedVpId) {
-      alert("Selecciona un candidato electo para la Vicepresidencia.");
+      setVpDesignationMsg({ success: false, message: "Seleccione un miembro electo para la Vicepresidencia." });
       return;
     }
+    const name = tallyData?.tally.totals.find((t) => t.candidateId === selectedVpId)?.fullName ?? "";
+    const ok = await confirm({
+      title: "¿Designar vicepresidente?",
+      description: `Se designará a ${name} como Vicepresidente del Secretariado.`,
+      confirmLabel: "Designar vicepresidente",
+    });
+    if (!ok) return;
     try {
       const res = await fetch("/api/comision/designar-vp", {
         method: "POST",
@@ -192,32 +237,36 @@ export function ResultsPanel({
       });
       const data = await res.json();
       if (res.ok) {
-        setVpDesignationMsg(data.message);
-        if (data.composition) {
-          setComposition(data.composition);
-        }
+        setVpDesignationMsg({ success: true, message: data.message });
+        if (data.composition) setComposition(data.composition);
         onRefresh();
       } else {
-        setVpDesignationMsg(data.error || "Error al designar.");
+        setVpDesignationMsg({ success: false, message: data.error || "No se pudo designar al vicepresidente." });
       }
     } catch {
-      setVpDesignationMsg("Error de conexión al designar Vicepresidente.");
+      setVpDesignationMsg({ success: false, message: "No se pudo conectar con el servidor. Inténtelo de nuevo." });
     }
   };
 
-  // Tramitar Vacante Presidencial (Arts. 99–102)
   const handleProcessPresidentialVacancy = async () => {
     if (!vacancyJustification.trim()) {
-      setVacancyMsg({ success: false, message: "Escribe la justificación del cese o la renuncia." });
+      setVacancyMsg({ success: false, message: "Escriba el motivo de la vacante." });
       return;
     }
     if (vacancyReason === "SEPARACION_DISCIPLINARIA" && (!councilAttendance || !councilInFavor)) {
       setVacancyMsg({
         success: false,
-        message: "La separación disciplinaria exige la asistencia y los votos a favor del Consejo según el acta.",
+        message: "La separación disciplinaria exige indicar la asistencia y los votos a favor del Consejo según el acta.",
       });
       return;
     }
+    const ok = await confirm({
+      title: "¿Registrar la vacante de la Presidencia?",
+      description: "Se registrará la vacante y la sucesión en la Presidencia. Esta acción no se puede deshacer.",
+      confirmLabel: "Registrar vacante",
+      danger: true,
+    });
+    if (!ok) return;
     setIsProcessingVacancy(true);
     setVacancyMsg(null);
     try {
@@ -229,7 +278,6 @@ export function ResultsPanel({
           reason: vacancyReason,
           justification: vacancyJustification,
           successorCandidateId: successorCandidateId || undefined,
-          // Datos reales del acta del Consejo; obligatorios en la separación disciplinaria.
           councilAttendancePct: councilAttendance ? Number(councilAttendance) : undefined,
           councilVotesInFavorPct: councilInFavor ? Number(councilInFavor) : undefined,
         }),
@@ -245,20 +293,26 @@ export function ResultsPanel({
         setVacancyMsg({ success: false, message: data.error });
       }
     } catch {
-      setVacancyMsg({ success: false, message: "Error al comunicar el trámite de vacancia." });
+      setVacancyMsg({ success: false, message: "No se pudo conectar con el servidor. Inténtelo de nuevo." });
     } finally {
       setIsProcessingVacancy(false);
     }
   };
 
-  // Designar nuevo Vicepresidente ante vacante
   const handleDesignateSuccessorVp = async () => {
+    setVacancyMsg(null);
     if (!newVpSuccessorId) {
-      alert("Selecciona un miembro del Secretariado para asumir la Vicepresidencia.");
+      setVacancyMsg({ success: false, message: "Seleccione un miembro del Secretariado para la Vicepresidencia." });
       return;
     }
+    const name = composition?.members.find((m) => m.candidateId === newVpSuccessorId)?.fullName ?? "";
+    const ok = await confirm({
+      title: "¿Designar vicepresidente?",
+      description: `Se designará a ${name} como nuevo Vicepresidente del Secretariado.`,
+      confirmLabel: "Designar vicepresidente",
+    });
+    if (!ok) return;
     setIsDesignatingNewVp(true);
-    setVacancyMsg(null);
     try {
       const res = await fetch("/api/comision/vacante", {
         method: "POST",
@@ -266,7 +320,7 @@ export function ResultsPanel({
         body: JSON.stringify({
           type: "DESIGNAR_NUEVO_VP",
           successorCandidateId: newVpSuccessorId,
-          justification: "Designación reglamentaria de nueva Vicepresidencia (Art. 67)",
+          justification: "Designación de nueva Vicepresidencia (Art. 67)",
         }),
       });
       const data = await res.json();
@@ -279,131 +333,87 @@ export function ResultsPanel({
         setVacancyMsg({ success: false, message: data.error });
       }
     } catch {
-      setVacancyMsg({ success: false, message: "Error al designar el nuevo Vicepresidente." });
+      setVacancyMsg({ success: false, message: "No se pudo conectar con el servidor. Inténtelo de nuevo." });
     } finally {
       setIsDesignatingNewVp(false);
     }
   };
 
-  // Exportar resultados en CSV
   const handleExportCsv = () => {
     if (!tallyData) return;
-    const headers = "Candidato,Brigada,Votos Miembro,Votos Presidente,Condicion\n";
+    const headers = "Candidato,Brigada,Votos para miembro,Votos para presidente,Condición\n";
     const rows = tallyData.tally.totals
       .map((t) => {
-        const condicion = t.isPresident
-          ? "Presidente Electo"
-          : t.isElected
-            ? "Miembro Electo"
-            : "No Electo";
+        const condicion = t.isPresident ? "Presidente electo" : t.isElected ? "Electo" : "No electo";
         return `"${t.fullName}","${t.brigadeCode}",${t.memberVotes},${t.presidentVotes},"${condicion}"`;
       })
       .join("\n");
-
-    const blob = new Blob([headers + rows], { type: "text/csv;charset=utf-8;" });
+    const blob = new Blob(["﻿" + headers + rows], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
-    link.setAttribute("href", url);
-    link.setAttribute(
-      "download",
-      `Resultados_Elecciones_FEU_${new Date().toISOString().slice(0, 10)}.csv`,
-    );
+    link.href = url;
+    link.download = `resultados-feu-${new Date().toISOString().slice(0, 10)}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
+    URL.revokeObjectURL(url);
   };
 
-  // Descargar Acta Oficial en PDF
-  const handleDownloadPdf = () => {
-    if (!tallyData) return;
-    const vpCandidate = tallyData.tally.totals.find((t) => t.candidateId === selectedVpId);
-
-    generateActaPdf({
-      tally: tallyData.tally,
-      totalEligible,
-      participations: tallyData.quorum.participations,
-      participationPct: tallyData.quorum.participationPct,
-      quorumMet: tallyData.quorum.quorumMet,
-      minPct: minParticipationPercentage,
-      candidacyHash: "candidacy-hash-verified-sha256",
-      designatedVpName: composition?.vicePresident?.fullName || vpCandidate?.fullName,
-      composition,
-    });
-  };
-
-  // Si la votación está ABIERTA
   if (status === "ABIERTA") {
     return (
       <div className="mx-auto max-w-2xl rounded-2xl border border-feu-green-300 bg-white p-10 text-center shadow-md">
-        <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-amber-100 text-amber-800">
-          <Lock className="h-10 w-10 text-amber-700" strokeWidth={2} />
+        <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-amber-100">
+          <Lock className="h-10 w-10 text-amber-700" strokeWidth={2} aria-hidden="true" />
         </div>
-        <h2 className="text-2xl font-bold text-feu-green-900">
-          Urnas Selladas · Escrutinio no Disponible
-        </h2>
-        <p className="mt-2 text-sm text-gray-600 leading-relaxed">
-          Para garantizar la pureza del sufragio y el secreto del voto, ningún resultado parcial puede ser visualizado mientras la votación permanezca abierta.
+        <h2 className="text-2xl font-bold text-feu-green-900">Resultados no disponibles durante la votación</h2>
+        <p className="mt-2 text-sm leading-relaxed text-gray-700">
+          Para proteger el secreto del voto, no se muestran resultados parciales mientras la votación esté abierta.
         </p>
-
-        <div className="mt-6 rounded-lg bg-gray-50 p-4 border border-gray-200 text-left text-xs text-gray-700 space-y-1">
-          <p>• <strong>Estado del Proceso:</strong> {status}</p>
-          <p>• <strong>Boletas Depositadas:</strong> {totalVotes} sufragios emitidos</p>
-          <p>• <strong>Electores Habilitados:</strong> {totalEligible} miembros</p>
-          <p>• <strong>Umbral Requerido:</strong> &gt;{minParticipationPercentage} % de participación (Art. 38)</p>
-        </div>
-
-        <p className="mt-4 text-xs text-gray-500">
-          La Comisión Electoral o el Administrador deben cerrar formalmente la votación desde el panel de Administración para habilitar el conteo.
+        <ul className="mt-6 space-y-1 rounded-lg border border-gray-200 bg-gray-50 p-4 text-left text-sm text-gray-800">
+          <li><strong>Estado:</strong> {statusLabel(status)}</li>
+          <li><strong>Votos emitidos:</strong> {totalVotes}</li>
+          <li><strong>Electores habilitados:</strong> {totalEligible}</li>
+          <li><strong>Participación mínima:</strong> más del {formatPct(minParticipationPercentage)} (Art. 38)</li>
+        </ul>
+        <p className="mt-4 text-sm text-gray-600">
+          Los resultados estarán disponibles cuando la Comisión Electoral cierre la votación y realice el escrutinio.
         </p>
       </div>
     );
   }
 
-  // Sin escrutinio todavía
   if (!tallyData && !(isAuthority && status === "CERRADA")) {
     return (
       <div className="mx-auto max-w-2xl rounded-2xl border border-feu-green-300 bg-white p-10 text-center shadow-md">
         <h2 className="text-2xl font-bold text-feu-green-900">Resultados aún no disponibles</h2>
-        <p className="mt-2 text-sm text-gray-600">
+        <p className="mt-2 text-sm text-gray-700">
           Los resultados se publican cuando la Comisión Electoral cierra la votación y realiza el escrutinio.
         </p>
       </div>
     );
   }
 
-  // Si la votación está CERRADA pero no se ha escrutado
   if (!tallyData) {
     return (
       <div className="mx-auto max-w-2xl rounded-2xl border border-feu-green-300 bg-white p-10 text-center shadow-md">
-        <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-blue-100 text-blue-800">
-          <Archive className="h-10 w-10 text-blue-700" strokeWidth={2} />
+        <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-blue-100">
+          <Archive className="h-10 w-10 text-blue-700" strokeWidth={2} aria-hidden="true" />
         </div>
-        <h2 className="text-2xl font-bold text-feu-green-900">
-          Escrutinio Oficial de la Elección
-        </h2>
-        <p className="mt-2 text-sm text-gray-600 leading-relaxed">
-          La votación ha concluido. La Comisión Electoral debe realizar el cómputo reproducible de las boletas válidas y verificar el cumplimiento de la participación requerida reglamentaria.
+        <h2 className="text-2xl font-bold text-feu-green-900">Escrutinio de la elección</h2>
+        <p className="mt-2 text-sm leading-relaxed text-gray-700">
+          La votación ha concluido. Realice el escrutinio para contar los votos válidos y comprobar si se alcanzó el
+          quórum.
         </p>
-
         {errorMsg && (
-          <div className="mt-4 rounded-lg bg-red-50 p-3 text-xs font-semibold text-red-700 border border-red-200">
+          <div role="alert" className="mt-4 rounded-lg border border-red-200 bg-red-50 p-3 text-sm font-semibold text-red-800">
             {errorMsg}
           </div>
         )}
-
         <div className="mt-6">
-          <button
-            onClick={() => {
-              if (window.confirm("¿Realizar el escrutinio? Se hace una sola vez y fija el resultado oficial.")) {
-                handleRunTally();
-              }
-            }}
-            disabled={isTallying}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-feu-green-700 px-8 py-3.5 text-base font-bold text-white shadow-md hover:bg-feu-green-800 disabled:opacity-50 transition-colors"
-          >
-            <Zap className="h-5 w-5" strokeWidth={2} />
-            <span>{isTallying ? "Escrutando Urna..." : "Realizar Escrutinio Oficial"}</span>
-          </button>
+          <Button onClick={handleRunTally} disabled={isTallying} className="px-8 py-3 text-base">
+            <Zap className="h-5 w-5" strokeWidth={2} aria-hidden="true" />
+            <span>{isTallying ? "Realizando escrutinio…" : "Realizar escrutinio"}</span>
+          </Button>
         </div>
       </div>
     );
@@ -411,94 +421,77 @@ export function ResultsPanel({
 
   const { quorum, tally } = tallyData;
   const eligibleForVp = tally.totals.filter((t) => t.isElected && !t.isPresident);
+  const presidentChanged = !!(composition && tally.president && composition.president.candidateId !== tally.presidentId);
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
-      {/* Tarjeta de Participación Reglamentaria (Art. 38) */}
       <div
         className={`rounded-xl border p-6 shadow-sm ${
-          quorum.quorumMet
-            ? "border-emerald-300 bg-emerald-50/60 text-emerald-950"
-            : "border-red-300 bg-red-50/60 text-red-950"
+          quorum.quorumMet ? "border-emerald-300 bg-emerald-50/60 text-emerald-950" : "border-red-300 bg-red-50/60 text-red-950"
         }`}
       >
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <span
-              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-bold uppercase tracking-wide ${
-                quorum.quorumMet
-                  ? "bg-emerald-200 text-emerald-900 border border-emerald-300"
-                  : "bg-red-200 text-red-900 border border-red-300"
+              className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5 text-xs font-bold ${
+                quorum.quorumMet ? "border-emerald-300 bg-emerald-200 text-emerald-900" : "border-red-300 bg-red-200 text-red-900"
               }`}
             >
               {quorum.quorumMet ? (
-                <>
-                  <Check className="h-3.5 w-3.5" strokeWidth={2} />
-                  <span>Participación Requerida Cumplida</span>
-                </>
+                <Check className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
               ) : (
-                <>
-                  <AlertTriangle className="h-3.5 w-3.5" strokeWidth={2} />
-                  <span>Participación Requerida no Alcanzada</span>
-                </>
+                <AlertTriangle className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
               )}
+              <span>{quorum.quorumMet ? "Quórum alcanzado" : "Quórum no alcanzado"}</span>
             </span>
             <h2 className="mt-2 text-xl font-bold">
-              {quorum.quorumMet
-                ? "Elección Válida para Proclamación (Art. 38)"
-                : "Elección no Válida (Art. 38 del ABC)"}
+              {quorum.quorumMet ? "La elección es válida (Art. 38)" : "La elección no es válida por falta de quórum (Art. 38)"}
             </h2>
-            <p className="mt-1 text-xs">
-              Se registró una participación del <strong>{quorum.participationPct} %</strong> (
-              {quorum.participations} de {totalEligible} electores). Umbral requerido: &gt;
-              {minParticipationPercentage} %.
+            <p className="mt-1 text-sm">
+              Participó el <strong>{formatPct(quorum.participationPct)}</strong> ({quorum.participations} de {totalEligible}{" "}
+              electores). Se requería más del {formatPct(minParticipationPercentage)}.
             </p>
           </div>
           <div className="text-right">
-            <span className="text-xs text-gray-500">Afluencia Total</span>
-            <p className="text-3xl font-extrabold">{quorum.participationPct} %</p>
+            <span className="text-sm text-gray-700">Participación</span>
+            <p className="text-3xl font-extrabold">{formatPct(quorum.participationPct)}</p>
           </div>
         </div>
       </div>
 
-      {/* Empate: lo resuelve la Comisión con acta (decisión F2) */}
       {status === "EMPATE" && tally.tie && (
-        <div className="rounded-xl border border-red-300 bg-red-50 p-6 text-red-950 shadow-sm space-y-3">
+        <div className="space-y-3 rounded-xl border border-red-300 bg-red-50 p-6 text-red-950 shadow-sm">
           <div className="flex items-start gap-3">
-            <AlertTriangle className="h-7 w-7 text-red-600 shrink-0" strokeWidth={2} />
+            <AlertTriangle className="h-7 w-7 shrink-0 text-red-700" strokeWidth={2} aria-hidden="true" />
             <div>
-              <h3 className="font-bold text-lg">
-                {tally.tie.type === "PRESIDENT" ? "Empate en la presidencia" : "Empate en el último puesto del Secretariado"}
+              <h3 className="text-lg font-bold">
+                {tally.tie.type === "PRESIDENT" ? "Empate en la Presidencia" : "Empate en el último puesto del Secretariado"}
               </h3>
-              <p className="text-sm mt-1">
-                Los votos a presidente no resolvieron el empate. La Comisión Electoral decide entre los empatados y deja
-                constancia en acta. Los resultados no se proclaman hasta entonces.
+              <p className="mt-1 text-sm">
+                Los votos para presidente no resolvieron el empate. La Comisión Electoral decide entre los candidatos
+                empatados y deja constancia en acta. Los resultados no se proclaman hasta entonces.
               </p>
-              <p className="text-sm mt-1">
-                Empatados:{" "}
+              <p className="mt-1 text-sm">
+                Candidatos empatados:{" "}
                 <strong>
-                  {tally.tie.candidateIds
-                    .map((id) => tally.totals.find((t) => t.candidateId === id)?.fullName ?? id)
-                    .join(", ")}
+                  {tally.tie.candidateIds.map((id) => tally.totals.find((t) => t.candidateId === id)?.fullName ?? id).join(", ")}
                 </strong>
               </p>
             </div>
           </div>
 
           {isAuthority && (
-            <div className="rounded-lg border border-red-200 bg-white p-4 space-y-3 text-gray-900">
+            <div className="space-y-3 rounded-lg border border-red-200 bg-white p-4 text-gray-900">
               {tally.tie.type === "CUT" && (
                 <fieldset>
                   <legend className="text-sm font-semibold">Candidatos que ocupan los puestos restantes</legend>
                   <div className="mt-2 space-y-1">
                     {tally.tie.candidateIds.map((id) => (
-                      <label key={id} className="flex items-center gap-2 text-sm">
+                      <label key={id} className="flex min-h-11 items-center gap-2 text-sm">
                         <input
                           type="checkbox"
                           checked={tieChosen.includes(id)}
-                          onChange={(e) =>
-                            setTieChosen(e.target.checked ? [...tieChosen, id] : tieChosen.filter((x) => x !== id))
-                          }
+                          onChange={(e) => setTieChosen(e.target.checked ? [...tieChosen, id] : tieChosen.filter((x) => x !== id))}
                           className="h-5 w-5"
                         />
                         {tally.totals.find((t) => t.candidateId === id)?.fullName ?? id}
@@ -508,27 +501,20 @@ export function ResultsPanel({
                 </fieldset>
               )}
               <div>
-                <label htmlFor="tie-president" className="text-sm font-semibold block mb-1">
-                  Presidente{tally.tie.type === "CUT" ? " (solo si vuelve a haber empate en presidencia)" : ""}
+                <label htmlFor="tie-president" className="mb-1 block text-sm font-semibold">
+                  Presidente{tally.tie.type === "CUT" ? " (solo si vuelve a haber empate en la Presidencia)" : ""}
                 </label>
-                <select
-                  id="tie-president"
-                  value={tiePresident}
-                  onChange={(e) => setTiePresident(e.target.value)}
-                  className="w-full rounded-lg border border-gray-300 p-2 text-sm"
-                >
-                  <option value="">Elegir</option>
-                  {(tally.tie.type === "PRESIDENT" ? tally.tie.candidateIds : tally.totals.map((t) => t.candidateId)).map(
-                    (id) => (
-                      <option key={id} value={id}>
-                        {tally.totals.find((t) => t.candidateId === id)?.fullName ?? id}
-                      </option>
-                    ),
-                  )}
+                <select id="tie-president" value={tiePresident} onChange={(e) => setTiePresident(e.target.value)} className={inputCls}>
+                  <option value="">Seleccione un candidato</option>
+                  {(tally.tie.type === "PRESIDENT" ? tally.tie.candidateIds : tally.totals.map((t) => t.candidateId)).map((id) => (
+                    <option key={id} value={id}>
+                      {tally.totals.find((t) => t.candidateId === id)?.fullName ?? id}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div>
-                <label htmlFor="tie-justification" className="text-sm font-semibold block mb-1">
+                <label htmlFor="tie-justification" className="mb-1 block text-sm font-semibold">
                   Motivo de la decisión
                 </label>
                 <textarea
@@ -540,7 +526,7 @@ export function ResultsPanel({
                 />
               </div>
               <div>
-                <label htmlFor="tie-acta" className="text-sm font-semibold block mb-1">
+                <label htmlFor="tie-acta" className="mb-1 block text-sm font-semibold">
                   Acta de la Comisión
                 </label>
                 <input
@@ -548,7 +534,7 @@ export function ResultsPanel({
                   value={tieActa}
                   onChange={(e) => setTieActa(e.target.value)}
                   placeholder="Número o referencia del acta"
-                  className="w-full rounded-lg border border-gray-300 p-2 text-sm"
+                  className={inputCls}
                 />
               </div>
               {tieMsg && (
@@ -556,16 +542,9 @@ export function ResultsPanel({
                   {tieMsg}
                 </p>
               )}
-              <button
-                onClick={() => {
-                  if (window.confirm("¿Registrar la decisión de la Comisión y proclamar los resultados?")) {
-                    handleResolveTie();
-                  }
-                }}
-                className="min-h-11 rounded-lg bg-red-700 px-4 py-2 text-sm font-bold text-white hover:bg-red-800"
-              >
+              <Button variant="danger" onClick={handleResolveTie}>
                 Registrar decisión y proclamar
-              </button>
+              </Button>
             </div>
           )}
         </div>
@@ -573,257 +552,221 @@ export function ResultsPanel({
 
       {tieResolution && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
-          <strong>Empate resuelto por la Comisión Electoral</strong> (acta {tieResolution.acta}):{" "}
-          {tieResolution.justification}
+          El empate fue resuelto por la Comisión Electoral (acta {tieResolution.acta}): {tieResolution.justification}
         </div>
       )}
 
-      {/* Proclamación del Presidente Electo */}
       {tally.president && (
         <div className="rounded-xl border border-amber-300 bg-amber-50 p-6 shadow-sm">
           <div className="flex items-center gap-4">
-            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-amber-200 text-amber-800">
-              <Star className="h-7 w-7 fill-amber-700 text-amber-700" strokeWidth={2} />
+            <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-amber-200">
+              <Star className="h-7 w-7 fill-amber-700 text-amber-700" strokeWidth={2} aria-hidden="true" />
             </div>
             <div>
-              <span className="text-xs font-bold text-amber-900 uppercase tracking-wide">
-                Presidente Electo de la Facultad (Art. 63)
+              <span className="text-sm font-bold text-amber-900">
+                {presidentChanged ? "Presidente actual" : "Presidente electo de la Facultad (Art. 63)"}
               </span>
               <h3 className="text-2xl font-bold text-amber-950">
-                {composition?.president?.fullName || tally.president.fullName}
+                {presidentChanged ? composition!.president.fullName : tally.president.fullName}
               </h3>
-              <p className="text-xs text-amber-800">
-                Brigada: {composition?.president?.brigadeCode || tally.president.brigadeCode} · Mayor cantidad de votos presidenciales entre los miembros electos.
+              <p className="text-sm text-amber-900">
+                Brigada {presidentChanged ? composition!.president.brigadeCode : tally.president.brigadeCode}
               </p>
+              {presidentChanged && (
+                <p className="mt-1 text-sm text-amber-900">Presidente electo: {tally.president.fullName}</p>
+              )}
             </div>
           </div>
         </div>
       )}
 
-      {/* Tabla Oficial de Escrutinio */}
       <div className="overflow-hidden rounded-xl border border-feu-green-300 bg-white shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-feu-green-200 bg-feu-green-50 px-6 py-4 gap-2">
+        <div className="flex flex-col gap-2 border-b border-feu-green-200 bg-feu-green-50 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <h3 className="font-bold text-feu-green-900">
-              Cómputo Oficial de Votos por Candidato
-            </h3>
-            <p className="text-xs text-feu-green-700">
-              Miembros electos ordenados por sufragios para miembro.
-            </p>
+            <h3 className="font-bold text-feu-green-900">Votos por candidato</h3>
+            <p className="text-sm text-feu-green-800">Ordenados según la boleta.</p>
           </div>
-          <div className="flex items-center gap-2">
-            <button
-              onClick={handleExportCsv}
-              className="flex items-center gap-1.5 rounded-lg border border-feu-green-300 bg-white px-3 py-1.5 text-xs font-semibold text-feu-green-900 hover:bg-feu-green-50 shadow-xs"
-            >
-              <Download className="h-3.5 w-3.5" strokeWidth={2} />
+          <div className="flex flex-wrap items-center gap-2">
+            <Button variant="secondary" onClick={handleExportCsv}>
+              <Download className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
               <span>Descargar CSV</span>
-            </button>
-            <button
-              onClick={handleDownloadPdf}
-              className="flex items-center gap-1.5 rounded-lg bg-feu-green-700 px-3.5 py-1.5 text-xs font-bold text-white hover:bg-feu-green-800 shadow-xs"
-            >
-              <FileSpreadsheet className="h-3.5 w-3.5" strokeWidth={2} />
-              <span>Descargar Acta PDF</span>
-            </button>
+            </Button>
+            {canProclaim && (
+              <Button asChild>
+                <a href="/api/acta" download="acta-escrutinio-feu.pdf">
+                  <FileText className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                  <span>Descargar acta en PDF</span>
+                </a>
+              </Button>
+            )}
           </div>
         </div>
 
-        <table className="w-full text-left text-sm">
-          <thead className="border-b border-feu-green-200 bg-feu-green-100 text-xs font-bold text-feu-green-900 uppercase">
-            <tr>
-              <th scope="col" className="px-4 py-3">Candidato</th>
-              <th scope="col" className="px-4 py-3 text-center w-24">Brigada</th>
-              <th scope="col" className="px-4 py-3 text-center w-36">Votos Miembro</th>
-              <th scope="col" className="px-4 py-3 text-center w-36">Votos Presidente</th>
-              <th scope="col" className="px-4 py-3 text-center w-40">Condición</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-feu-green-100 text-feu-green-900">
-            {tally.totals.map((t) => (
-              <tr
-                key={t.candidateId}
-                className={
-                  t.isPresident
-                    ? "bg-amber-50 font-semibold"
-                    : t.isElected
-                      ? "bg-emerald-50/60"
-                      : "opacity-60"
-                }
-              >
-                <td className="px-4 py-3">
-                  <div className="font-semibold">{t.fullName}</div>
-                </td>
-                <td className="px-4 py-3 text-center font-mono">{t.brigadeCode}</td>
-                <td className="px-4 py-3 text-center font-bold">{t.memberVotes}</td>
-                <td className="px-4 py-3 text-center font-bold text-amber-800">
-                  {t.presidentVotes}
-                </td>
-                <td className="px-4 py-3 text-center">
-                  {t.isPresident ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-200 px-3 py-1 text-xs font-bold text-amber-900">
-                      <Star className="h-3.5 w-3.5 fill-amber-900" strokeWidth={2} />
-                      <span>Presidente</span>
-                    </span>
-                  ) : t.isElected ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-800">
-                      <Check className="h-3.5 w-3.5" strokeWidth={2} />
-                      <span>Electo</span>
-                    </span>
-                  ) : (
-                    <span className="text-xs text-gray-400">No electo</span>
-                  )}
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="border-b border-feu-green-200 bg-feu-green-100 text-sm font-bold text-feu-green-900">
+              <tr>
+                <th scope="col" className="px-4 py-3">Candidato</th>
+                <th scope="col" className="w-24 px-4 py-3 text-center">Brigada</th>
+                <th scope="col" className="w-36 px-4 py-3 text-center">Votos para miembro</th>
+                <th scope="col" className="w-36 px-4 py-3 text-center">Votos para presidente</th>
+                <th scope="col" className="w-40 px-4 py-3 text-center">Condición</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Designación de Vicepresidente (Art. 67) */}
-      {isAuthority && status === "PROCLAMADA" && (
-      <div className="rounded-xl border border-feu-green-300 bg-white p-6 shadow-sm">
-        <h3 className="text-lg font-bold text-feu-green-900">
-          Designación del Vicepresidente (Art. 67 del ABC)
-        </h3>
-        <p className="mt-1 text-xs text-gray-600">
-          El Vicepresidente no se vota en la boleta; es designado por acuerdo de la Comisión Electoral posterior a la proclamación de los miembros electos.
-        </p>
-
-        <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-center">
-          <label htmlFor="vpSelect" className="sr-only">Seleccionar Vicepresidente</label>
-          <select
-            id="vpSelect"
-            value={selectedVpId}
-            onChange={(e) => setSelectedVpId(e.target.value)}
-            className="flex-1 rounded-lg border border-gray-300 p-2.5 text-sm font-medium text-gray-900 focus:border-feu-green-700 focus:outline-hidden"
-          >
-            <option value="">-- Seleccionar entre los miembros electos --</option>
-            {eligibleForVp.map((c) => (
-              <option key={c.candidateId} value={c.candidateId}>
-                {c.fullName} (Brigada {c.brigadeCode})
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={handleDesignateVp}
-            className="rounded-lg bg-feu-green-700 px-5 py-2.5 text-sm font-bold text-white shadow-xs hover:bg-feu-green-800"
-          >
-            Designar como Vicepresidente
-          </button>
+            </thead>
+            <tbody className="divide-y divide-feu-green-100 text-feu-green-900">
+              {tally.totals.map((t) => (
+                <tr key={t.candidateId} className={t.isPresident ? "bg-amber-50 font-semibold" : t.isElected ? "bg-emerald-50/60" : ""}>
+                  <td className="px-4 py-3 font-semibold">{t.fullName}</td>
+                  <td className="px-4 py-3 text-center font-mono">{t.brigadeCode}</td>
+                  <td className="px-4 py-3 text-center font-bold">{t.memberVotes}</td>
+                  <td className="px-4 py-3 text-center font-bold text-amber-900">{t.presidentVotes}</td>
+                  <td className="px-4 py-3 text-center">
+                    {t.isPresident ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-amber-200 px-3 py-1 text-xs font-bold text-amber-900">
+                        <Star className="h-3.5 w-3.5 fill-amber-900" strokeWidth={2} aria-hidden="true" />
+                        <span>Presidente</span>
+                      </span>
+                    ) : t.isElected ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-3 py-1 text-xs font-bold text-emerald-900">
+                        <Check className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
+                        <span>Electo</span>
+                      </span>
+                    ) : (
+                      <span className="text-xs text-gray-600">No electo</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-
-        {vpDesignationMsg && (
-          <p role="status" className="mt-3 text-sm font-semibold text-gray-800">
-            {vpDesignationMsg}
-          </p>
-        )}
       </div>
+
+      {isAuthority && status === "PROCLAMADA" && (
+        <div className="rounded-xl border border-feu-green-300 bg-white p-6 shadow-sm">
+          <h3 className="text-lg font-bold text-feu-green-900">Designación del Vicepresidente (Art. 67)</h3>
+          <p className="mt-1 text-sm text-gray-700">
+            El Vicepresidente no se vota en la boleta: lo designa la Comisión Electoral entre los miembros electos después de
+            la proclamación.
+          </p>
+          <div className="mt-4 flex flex-col gap-3 sm:flex-row sm:items-end">
+            <div className="flex-1">
+              <label htmlFor="vpSelect" className="mb-1 block text-sm font-semibold text-gray-800">
+                Miembro electo
+              </label>
+              <select id="vpSelect" value={selectedVpId} onChange={(e) => setSelectedVpId(e.target.value)} className={inputCls}>
+                <option value="">Seleccione un miembro electo</option>
+                {eligibleForVp.map((c) => (
+                  <option key={c.candidateId} value={c.candidateId}>
+                    {c.fullName} (Brigada {c.brigadeCode})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <Button onClick={handleDesignateVp}>Designar vicepresidente</Button>
+          </div>
+          {vpDesignationMsg && (
+            <p
+              role={vpDesignationMsg.success ? "status" : "alert"}
+              className={`mt-3 text-sm font-semibold ${vpDesignationMsg.success ? "text-emerald-900" : "text-red-800"}`}
+            >
+              {vpDesignationMsg.message}
+            </p>
+          )}
+        </div>
       )}
 
-      {/* MÓDULO DE GESTIÓN DE VACANTES Y SUCESIÓN (Arts. 99–102) */}
       {composition && (
-        <div className="rounded-xl border border-indigo-200 bg-white p-6 shadow-sm space-y-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-gray-100 pb-3">
+        <div className="space-y-4 rounded-xl border border-indigo-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-col gap-2 border-b border-gray-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
             <div>
-              <h3 className="text-lg font-bold text-gray-900">
-                Secretariado de la Facultad (Arts. 99–102) · Versión {composition.version}
-              </h3>
-              <p className="text-xs text-gray-500">
-                Última actualización: {new Date(composition.updatedAt).toLocaleString("es-ES")} ({composition.reason})
-              </p>
+              <h3 className="text-lg font-bold text-gray-900">Secretariado de la Facultad</h3>
+              <p className="text-sm text-gray-700">Última actualización: {formatDateTime(composition.updatedAt)}</p>
             </div>
             {isAuthority && (
-            <button
-              onClick={() => setShowVacancyForm(!showVacancyForm)}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-indigo-300 bg-indigo-50 px-3.5 py-2 text-xs font-bold text-indigo-900 hover:bg-indigo-100"
-            >
-              {showVacancyForm ? (
-                <>
-                  <X className="h-3.5 w-3.5" strokeWidth={2} />
-                  <span>Cerrar Formulario</span>
-                </>
-              ) : (
-                <>
-                  <Scale className="h-3.5 w-3.5" strokeWidth={2} />
-                  <span>Tramitar Vacante / Cese (Arts. 99–102)</span>
-                </>
-              )}
-            </button>
+              <Button variant="secondary" onClick={() => setShowVacancyForm(!showVacancyForm)} aria-expanded={showVacancyForm}>
+                {showVacancyForm ? (
+                  <>
+                    <X className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                    <span>Cerrar formulario</span>
+                  </>
+                ) : (
+                  <>
+                    <Scale className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                    <span>Registrar vacante en la Presidencia</span>
+                  </>
+                )}
+              </Button>
             )}
           </div>
 
-          {/* Cuadro de Composición Actual */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-            <div className="rounded-lg bg-amber-50 border border-amber-200 p-3">
-              <span className="text-[10px] font-bold text-amber-800 uppercase">Presidente Actual</span>
-              <p className="font-bold text-sm text-amber-950 mt-0.5">{composition.president.fullName}</p>
-              <p className="text-[11px] text-amber-700">Brigada {composition.president.brigadeCode}</p>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:grid-cols-3">
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <span className="text-xs font-bold text-amber-900">Presidente</span>
+              <p className="mt-0.5 text-sm font-bold text-amber-950">{composition.president.fullName}</p>
+              <p className="text-xs text-amber-900">Brigada {composition.president.brigadeCode}</p>
             </div>
-            <div className="rounded-lg bg-blue-50 border border-blue-200 p-3">
-              <span className="text-[10px] font-bold text-blue-800 uppercase">Vicepresidente Actual</span>
-              <p className="font-bold text-sm text-blue-950 mt-0.5">
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+              <span className="text-xs font-bold text-blue-900">Vicepresidente</span>
+              <p className="mt-0.5 text-sm font-bold text-blue-950">
                 {composition.vicePresident ? (
                   composition.vicePresident.fullName
                 ) : (
-                  <span className="inline-flex items-center gap-1 text-amber-700 font-semibold">
-                    <AlertTriangle className="h-3.5 w-3.5" strokeWidth={2} />
-                    <span>Plaza Vacante</span>
+                  <span className="inline-flex items-center gap-1 font-semibold text-amber-800">
+                    <AlertTriangle className="h-3.5 w-3.5" strokeWidth={2} aria-hidden="true" />
+                    <span>Cargo sin cubrir</span>
                   </span>
                 )}
               </p>
-              <p className="text-[11px] text-blue-700">
+              <p className="text-xs text-blue-900">
                 {composition.vicePresident ? `Brigada ${composition.vicePresident.brigadeCode}` : "Pendiente de designación"}
               </p>
             </div>
-            <div className="rounded-lg bg-gray-50 border border-gray-200 p-3">
-              <span className="text-[10px] font-bold text-gray-600 uppercase">Miembros Electos</span>
-              <p className="font-bold text-sm text-gray-900 mt-0.5">{composition.members.length} miembros</p>
-              <p className="text-[11px] text-gray-500">Secretariado activo</p>
+            <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+              <span className="text-xs font-bold text-gray-700">Miembros</span>
+              <p className="mt-0.5 text-sm font-bold text-gray-900">{composition.members.length} miembros</p>
             </div>
           </div>
 
-          {/* Formulario de Tramitación de Vacante Presidencial */}
           {showVacancyForm && (
-            <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50/50 p-5 space-y-3">
-              <h4 className="font-bold text-sm text-amber-950">
-                Procedimiento de Cese y Sucesión Presidencial
-              </h4>
-              <p className="text-xs text-gray-600">
-                Ante la vacancia del cargo presidencial, por defecto asume el Vicepresidente electo (Art. 102), o la Comisión puede promover a otro miembro electo.
+            <div className="mt-4 space-y-3 rounded-xl border border-amber-300 bg-amber-50/50 p-5">
+              <h4 className="text-sm font-bold text-amber-950">Vacante en la Presidencia y sucesión</h4>
+              <p className="text-sm text-gray-700">
+                Si la Presidencia queda vacante, asume por defecto el Vicepresidente (Art. 102). La Comisión también puede
+                proponer a otro miembro electo.
               </p>
-
               <div className="grid gap-3 sm:grid-cols-2">
                 <div>
-                  <label className="text-xs font-semibold text-gray-700 block mb-1">
-                    Causal de Vacancia:
+                  <label htmlFor="vacancy-reason" className="mb-1 block text-sm font-semibold text-gray-800">
+                    Motivo de la vacante
                   </label>
                   <select
+                    id="vacancy-reason"
                     value={vacancyReason}
                     onChange={(e) => setVacancyReason(e.target.value as VacancyReason)}
-                    className="w-full rounded-lg border border-gray-300 bg-white p-2 text-xs font-medium text-gray-900"
+                    className={inputCls}
                   >
-                    <option value="DIMISION_VOLUNTARIA">Renuncia Voluntaria (Art. 99, no requiere aprobación)</option>
-                    <option value="SEPARACION_DISCIPLINARIA">Separación Disciplinaria (Art. 101, requiere &gt;85% Consejo)</option>
-                    <option value="GRADUACION_O_BAJA">Baja Estudiantil / Graduación</option>
+                    <option value="DIMISION_VOLUNTARIA">Renuncia voluntaria (Art. 99)</option>
+                    <option value="SEPARACION_DISCIPLINARIA">Separación disciplinaria (Art. 101, requiere aprobación del Consejo)</option>
+                    <option value="GRADUACION_O_BAJA">Baja o graduación</option>
                   </select>
                 </div>
-
                 <div>
-                  <label className="text-xs font-semibold text-gray-700 block mb-1">
-                    Sucesión Presidencial (Art. 102):
+                  <label htmlFor="vacancy-successor" className="mb-1 block text-sm font-semibold text-gray-800">
+                    Quién asume la Presidencia (Art. 102)
                   </label>
                   <select
+                    id="vacancy-successor"
                     value={successorCandidateId}
                     onChange={(e) => setSuccessorCandidateId(e.target.value)}
-                    className="w-full rounded-lg border border-gray-300 bg-white p-2 text-xs font-medium text-gray-900"
+                    className={inputCls}
                   >
                     <option value="">
-                      -- Asume Vicepresidente por defecto ({composition.vicePresident?.fullName || "Vacante"}) --
+                      El Vicepresidente ({composition.vicePresident?.fullName || "cargo sin cubrir"})
                     </option>
                     {composition.members.map((m) => (
                       <option key={m.candidateId} value={m.candidateId}>
-                        Promover a: {m.fullName} (Brigada {m.brigadeCode})
+                        {m.fullName} (Brigada {m.brigadeCode})
                       </option>
                     ))}
                   </select>
@@ -833,7 +776,7 @@ export function ResultsPanel({
               {vacancyReason === "SEPARACION_DISCIPLINARIA" && (
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div>
-                    <label htmlFor="council-attendance" className="text-xs font-semibold text-gray-700 block mb-1">
+                    <label htmlFor="council-attendance" className="mb-1 block text-sm font-semibold text-gray-800">
                       Asistencia al Consejo (%)
                     </label>
                     <input
@@ -843,11 +786,11 @@ export function ResultsPanel({
                       max={100}
                       value={councilAttendance}
                       onChange={(e) => setCouncilAttendance(e.target.value)}
-                      className="w-full rounded-lg border border-gray-300 bg-white p-2 text-sm text-gray-900"
+                      className={inputCls}
                     />
                   </div>
                   <div>
-                    <label htmlFor="council-favor" className="text-xs font-semibold text-gray-700 block mb-1">
+                    <label htmlFor="council-favor" className="mb-1 block text-sm font-semibold text-gray-800">
                       Votos a favor en el Consejo (%)
                     </label>
                     <input
@@ -857,191 +800,176 @@ export function ResultsPanel({
                       max={100}
                       value={councilInFavor}
                       onChange={(e) => setCouncilInFavor(e.target.value)}
-                      className="w-full rounded-lg border border-gray-300 bg-white p-2 text-sm text-gray-900"
+                      className={inputCls}
                     />
                   </div>
                 </div>
               )}
 
               <div>
-                <label className="text-xs font-semibold text-gray-700 block mb-1">
-                  Justificación / Acta de Cese:
+                <label htmlFor="vacancy-justification" className="mb-1 block text-sm font-semibold text-gray-800">
+                  Motivo detallado y referencia del acta
                 </label>
                 <textarea
+                  id="vacancy-justification"
                   rows={2}
                   value={vacancyJustification}
                   onChange={(e) => setVacancyJustification(e.target.value)}
-                  placeholder="Ej: Renuncia voluntaria por motivos académicos aprobada en reunión de secretariado..."
-                  className="w-full rounded-lg border border-gray-300 bg-white p-2 text-xs text-gray-900"
+                  placeholder="Por ejemplo: renuncia por motivos académicos, acta n.º 3 de la reunión del Secretariado"
+                  className="w-full rounded-lg border border-gray-300 bg-white p-2 text-sm text-gray-900"
                 />
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
-                <button
-                  onClick={() => setShowVacancyForm(false)}
-                  className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs text-gray-700"
-                >
+                <Button variant="secondary" onClick={() => setShowVacancyForm(false)}>
                   Cancelar
-                </button>
-                <button
-                  onClick={handleProcessPresidentialVacancy}
-                  disabled={isProcessingVacancy}
-                  className="rounded-lg bg-amber-700 px-4 py-1.5 text-xs font-bold text-white hover:bg-amber-800 disabled:opacity-50"
-                >
-                  {isProcessingVacancy ? "Procesando..." : "Confirmar Cese y Sucesión (Art. 102)"}
-                </button>
+                </Button>
+                <Button variant="danger" onClick={handleProcessPresidentialVacancy} disabled={isProcessingVacancy}>
+                  {isProcessingVacancy ? "Registrando…" : "Registrar vacante"}
+                </Button>
               </div>
             </div>
           )}
 
-          {/* Formulario si la Vicepresidencia está vacante */}
-          {composition.vicePresident === null && (
-            <div className="mt-4 rounded-xl border border-blue-300 bg-blue-50/50 p-4 space-y-2">
-              <h4 className="font-bold text-xs text-blue-950 uppercase tracking-wide">
-                Designación de Nueva Vicepresidencia (Plaza Vacante)
-              </h4>
-              <p className="text-xs text-gray-600">
-                Al haber asumido el Vicepresidente la presidencia, la Comisión Electoral debe designar a un nuevo Vicepresidente entre los miembros electos restantes.
+          {composition.vicePresident === null && isAuthority && (
+            <div className="mt-4 space-y-2 rounded-xl border border-blue-300 bg-blue-50/50 p-4">
+              <h4 className="text-sm font-bold text-blue-950">Designación de un nuevo Vicepresidente</h4>
+              <p className="text-sm text-gray-700">
+                El cargo de Vicepresidente está sin cubrir. La Comisión Electoral debe designar a un miembro electo.
               </p>
-              <div className="flex flex-col sm:flex-row gap-2 pt-1">
-                <select
-                  value={newVpSuccessorId}
-                  onChange={(e) => setNewVpSuccessorId(e.target.value)}
-                  className="flex-1 rounded-lg border border-gray-300 bg-white p-2 text-xs font-medium text-gray-900"
-                >
-                  <option value="">-- Seleccionar miembro electo --</option>
-                  {composition.members.map((m) => (
-                    <option key={m.candidateId} value={m.candidateId}>
-                      {m.fullName} (Brigada {m.brigadeCode})
-                    </option>
-                  ))}
-                </select>
-                <button
-                  onClick={handleDesignateSuccessorVp}
-                  disabled={isDesignatingNewVp}
-                  className="rounded-lg bg-blue-700 px-4 py-2 text-xs font-bold text-white hover:bg-blue-800 disabled:opacity-50"
-                >
-                  {isDesignatingNewVp ? "Designando..." : "Designar como Vicepresidente"}
-                </button>
+              <div className="flex flex-col gap-2 pt-1 sm:flex-row sm:items-end">
+                <div className="flex-1">
+                  <label htmlFor="new-vp" className="mb-1 block text-sm font-semibold text-gray-800">
+                    Miembro electo
+                  </label>
+                  <select id="new-vp" value={newVpSuccessorId} onChange={(e) => setNewVpSuccessorId(e.target.value)} className={inputCls}>
+                    <option value="">Seleccione un miembro electo</option>
+                    {composition.members.map((m) => (
+                      <option key={m.candidateId} value={m.candidateId}>
+                        {m.fullName} (Brigada {m.brigadeCode})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <Button onClick={handleDesignateSuccessorVp} disabled={isDesignatingNewVp}>
+                  {isDesignatingNewVp ? "Designando…" : "Designar vicepresidente"}
+                </Button>
               </div>
             </div>
           )}
 
-          {/* Mensajes de Vacancia */}
           {vacancyMsg && (
             <div
-              className={`flex items-start gap-2 rounded-lg p-2.5 text-xs font-medium border ${
-                vacancyMsg.success
-                  ? "bg-emerald-50 text-emerald-900 border-emerald-200"
-                  : "bg-red-50 text-red-900 border-red-200"
+              role={vacancyMsg.success ? "status" : "alert"}
+              className={`flex items-start gap-2 rounded-lg border p-2.5 text-sm font-medium ${
+                vacancyMsg.success ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-900"
               }`}
             >
               {vacancyMsg.success ? (
-                <Check className="h-4 w-4 shrink-0 text-emerald-600 mt-0.5" strokeWidth={2} />
+                <Check className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" strokeWidth={2} aria-hidden="true" />
               ) : (
-                <AlertTriangle className="h-4 w-4 shrink-0 text-red-600 mt-0.5" strokeWidth={2} />
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-red-700" strokeWidth={2} aria-hidden="true" />
               )}
               <span>{vacancyMsg.message}</span>
             </div>
           )}
 
-          {/* Historial de Eventos de Vacancia */}
           {composition.historicalEvents.length > 0 && (
-            <div className="pt-2 border-t border-gray-100">
-              <h5 className="text-xs font-bold text-gray-700 mb-1">
-                Historial de Sucesión y Modificaciones:
-              </h5>
-              <div className="space-y-1">
+            <div className="border-t border-gray-100 pt-2">
+              <h4 className="mb-1 text-sm font-bold text-gray-800">Historial de cambios</h4>
+              <ul className="space-y-1">
                 {composition.historicalEvents.map((ev) => (
-                  <div
+                  <li
                     key={ev.id}
-                    className="text-[11px] text-gray-600 bg-gray-50 p-2 rounded-md border border-gray-100 flex flex-col sm:flex-row sm:items-center sm:justify-between"
+                    className="flex flex-col rounded-md border border-gray-100 bg-gray-50 p-2 text-sm text-gray-800 sm:flex-row sm:items-center sm:justify-between"
                   >
-                    <span>
-                      • <strong>{ev.vacatedRole}:</strong> Cese de {ev.outgoingFullName} ({ev.reason}). Asume: {ev.successorFullName || "Vacante"}.
-                    </span>
-                    <span className="text-[10px] text-gray-400 font-mono">
-                      {new Date(ev.timestamp).toLocaleDateString("es-ES")}
-                    </span>
-                  </div>
+                    <span>{describeEvent(ev)}</span>
+                    <span className="text-xs text-gray-600">{formatDate(ev.timestamp)}</span>
+                  </li>
                 ))}
-              </div>
+              </ul>
             </div>
           )}
         </div>
       )}
 
-      {/* Acta Formal de Escrutinio y Proclamación para Imprimir */}
       {canProclaim && (
-      <div className="rounded-xl border border-feu-green-300 bg-white p-8 shadow-sm print:m-0 print:border-none print:p-0">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between border-b border-gray-200 pb-4 gap-3">
-          <div className="flex items-center gap-3">
-            <div className="relative h-12 w-16 shrink-0">
-              <Image src="/logos/feu_512.png" alt="Logo FEU" fill className="object-contain" />
+        <div className="rounded-xl border border-feu-green-300 bg-white p-8 shadow-sm print:m-0 print:border-none print:p-0">
+          <div className="flex flex-col gap-3 border-b border-gray-200 pb-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <div className="relative h-12 w-16 shrink-0">
+                <Image src="/logos/feu_512.png" alt="Logo FEU" fill className="object-contain" />
+              </div>
+              <div>
+                <h3 className="text-lg font-bold text-gray-900">Acta de escrutinio y proclamación</h3>
+                <p className="text-sm text-gray-700">
+                  <span className="font-bold text-feu-carmesi-500">FEU</span> · Facultad de Ingeniería Informática, CUJAE
+                </p>
+              </div>
             </div>
-            <div>
-              <h3 className="text-lg font-bold text-gray-900">
-                Acta Oficial de Escrutinio y Proclamación
-              </h3>
-              <p className="text-xs text-gray-500">
-                Federación Estudiantil Universitaria · CUJAE
+            <div className="flex items-center gap-2 print:hidden">
+              <Button asChild>
+                <a href="/api/acta" download="acta-escrutinio-feu.pdf">
+                  <Download className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                  <span>Descargar PDF</span>
+                </a>
+              </Button>
+              <Button variant="secondary" onClick={() => window.print()}>
+                <Printer className="h-4 w-4" strokeWidth={2} aria-hidden="true" />
+                <span>Imprimir</span>
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3 text-sm leading-relaxed text-gray-900">
+            <p>
+              La Comisión Electoral de la Facultad de Ingeniería Informática de la Universidad Tecnológica de La Habana
+              &quot;José Antonio Echeverría&quot; (CUJAE) certifica el resultado de la elección del Secretariado de la
+              Facultad.
+            </p>
+            <ul className="space-y-1 rounded-lg bg-gray-50 p-4">
+              <li><strong>Electores con derecho al voto:</strong> {totalEligible}</li>
+              <li><strong>Electores que votaron:</strong> {quorum.participations}</li>
+              <li><strong>Participación:</strong> {formatPct(quorum.participationPct)}</li>
+              <li>
+                <strong>Quórum requerido (más del {formatPct(minParticipationPercentage)}):</strong>{" "}
+                {quorum.quorumMet ? "alcanzado" : "no alcanzado"}
+              </li>
+              <li>
+                <strong>Presidente:</strong> {composition?.president?.fullName || tally.president?.fullName || "—"}
+                {presidentChanged && ` (presidente electo: ${tally.president?.fullName})`}
+              </li>
+              <li>
+                <strong>Vicepresidente:</strong> {composition?.vicePresident?.fullName || "Pendiente de designación (Art. 67)"}
+              </li>
+              <li><strong>Miembros electos del Secretariado:</strong> {tally.elected.length}</li>
+            </ul>
+            {tieResolution && (
+              <p>
+                El empate fue resuelto por la Comisión Electoral (acta {tieResolution.acta}):{" "}
+                {tieResolution.justification.trim().replace(/\.+$/, "")}.
               </p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 print:hidden">
-            <button
-              onClick={handleDownloadPdf}
-              className="flex items-center gap-1.5 rounded-lg bg-feu-green-700 px-4 py-2 text-xs font-bold text-white hover:bg-feu-green-800 shadow-xs"
-            >
-              <Download className="h-3.5 w-3.5" strokeWidth={2} />
-              <span>Descargar PDF</span>
-            </button>
-            <button
-              onClick={() => window.print()}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-gray-300 bg-white px-4 py-2 text-xs font-bold text-gray-700 hover:bg-gray-50 shadow-xs"
-            >
-              <Printer className="h-3.5 w-3.5" strokeWidth={2} />
-              <span>Imprimir</span>
-            </button>
-          </div>
-        </div>
+            )}
+            <p>
+              Verificadas las condiciones de participación y el secreto del voto según los artículos 38, 40, 59, 61 y 63 del
+              Reglamento de la <span className="font-bold text-feu-carmesi-500">FEU</span>, la Comisión Electoral firma y da
+              por válidos estos resultados.
+            </p>
 
-        <div className="mt-4 space-y-3 text-xs leading-relaxed text-gray-800">
-          <p>
-            En la ciudad de La Habana, en la Facultad de Ingeniería Informática de la Universidad Tecnológica de La Habana &quot;José Antonio Echeverría&quot; (CUJAE), reunida la Comisión Electoral constituida conforme al Artículo 47 del ABC de la FEU, se procede a dar fe del resultado oficial de las elecciones del Secretariado de la Facultad.
-          </p>
-
-          <div className="rounded-lg bg-gray-50 p-4 font-mono text-[11px] space-y-1">
-            <p><strong>Membresía con Derecho al Voto:</strong> {totalEligible}</p>
-            <p><strong>Total de boletas depositadas:</strong> {quorum.participations}</p>
-            <p><strong>Porcentaje de participación:</strong> {quorum.participationPct} %</p>
-            <p><strong>Requisito de validez (&gt;{minParticipationPercentage} %):</strong> {quorum.quorumMet ? "CUMPLIDO SATISFACTORIAMENTE" : "NO CUMPLIDO"}</p>
-            <p><strong>Presidente Proclamado:</strong> {composition?.president?.fullName || tally.president?.fullName || "Pendiente de desempate"}</p>
-            <p><strong>Vicepresidente Designado:</strong> {composition?.vicePresident?.fullName || "Pendiente de designación (Art. 67)"}</p>
-            <p><strong>Miembros del Secretariado Electos:</strong> {tally.elected.length}</p>
-          </div>
-
-          <p>
-            Habiéndose verificado las condiciones reglamentarias y el secreto del voto de acuerdo con los Artículos 38, 40, 59, 61 y 63 del Reglamento General de la Federación Estudiantil Universitaria, la Comisión Electoral firma y da por válidos los presentes resultados.
-          </p>
-
-          {/* Bloque de Firmas */}
-          <div className="mt-8 grid grid-cols-3 gap-6 pt-6 text-center text-xs">
-            <div className="border-t border-gray-400 pt-2">
-              <p className="font-bold">Presidente de la Comisión</p>
-              <p className="text-[10px] text-gray-500">Elena García Méndez</p>
-            </div>
-            <div className="border-t border-gray-400 pt-2">
-              <p className="font-bold">Vicepresidente de la Comisión</p>
-              <p className="text-[10px] text-gray-500">Frank Hernández Pérez</p>
-            </div>
-            <div className="border-t border-gray-400 pt-2">
-              <p className="font-bold">Secretario de la Comisión</p>
-              <p className="text-[10px] text-gray-500">Giselle López Reyes</p>
-            </div>
+            {commission.length === 0 ? (
+              <p className="mt-6 text-sm text-gray-700">La Comisión Electoral aún no está registrada; no hay firmas que mostrar.</p>
+            ) : (
+              <div className="mt-8 grid grid-cols-1 gap-6 pt-6 text-center text-sm sm:grid-cols-3">
+                {commission.map((m) => (
+                  <div key={`${m.office}-${m.name}`} className="border-t border-gray-500 pt-2">
+                    <p className="font-bold">{m.name}</p>
+                    <p className="text-xs text-gray-700">{officeLabel(m.office)} de la Comisión Electoral</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
-      </div>
       )}
     </div>
   );

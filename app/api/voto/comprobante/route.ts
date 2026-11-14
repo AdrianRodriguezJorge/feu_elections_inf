@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
   const rl = checkRateLimit(`receipt:${clientIp(request.headers)}`, 30, 60_000);
   if (!rl.allowed) {
     return NextResponse.json(
-      { ok: false, error: `Demasiadas consultas. Espera ${rl.resetSeconds} segundos.` },
+      { ok: false, error: `Demasiadas consultas. Espere ${rl.resetSeconds} segundos.` },
       { status: 429, headers: { "Retry-After": String(rl.resetSeconds) } },
     );
   }
@@ -38,7 +38,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json(
     found
-      ? { ok: true, found: true, message: "Tu boleta está en la urna y se contará en el escrutinio." }
+      ? { ok: true, found: true, message: "Su boleta está en la urna y se contará en el escrutinio." }
       : { ok: false, found: false, error: "No hay ninguna boleta en la urna con ese comprobante." },
     { status: found ? 200 : 404 },
   );

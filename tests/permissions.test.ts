@@ -58,6 +58,6 @@ describe("Roles, Autorización y Emisión de Voto (F2, RGF-25, INV-06)", () => {
   it("canCastBallot (INV-06 / RGF-25): rechaza doble voto si ya votó previamente", () => {
     const res = canCastBallot("VOTER", "ABIERTA", true, true);
     expect(res.allowed).toBe(false);
-    expect(res.reason).toContain("Ya emitiste tu voto");
+    expect(res.reason).toContain("Ya emitió su voto");
   });
 });

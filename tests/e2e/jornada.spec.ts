@@ -4,6 +4,7 @@
  * Cada paso guarda una captura en test-results/capturas.
  */
 
+import AxeBuilder from "@axe-core/playwright";
 import { expect, Page, test } from "@playwright/test";
 import { activate, AUTHORITIES, AUTHORITY_PASSWORD, resetDb } from "../integration/helpers";
 
@@ -30,12 +31,30 @@ async function capture(page: Page, name: string) {
   await page.screenshot({ path: `test-results/capturas/${name}.png`, fullPage: true });
 }
 
+/** WCAG 2.1 AA con axe: sin infracciones graves ni críticas. */
+async function expectAccessible(page: Page, name: string) {
+  const results = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21a", "wcag21aa"]).analyze();
+  const serious = results.violations.filter((v) => v.impact === "serious" || v.impact === "critical");
+  expect(serious.map((v) => `${name}: ${v.id} (${v.nodes.length}) ${v.help}`)).toEqual([]);
+}
+
+/** Pulsa el botón de la página y confirma en el diálogo accesible. */
+async function confirmAction(page: Page, name: string) {
+  await page.getByRole("button", { name, exact: true }).click();
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole("button", { name, exact: true }).click();
+  await expect(dialog).toHaveCount(0);
+}
+
 test("la electora activa su cuenta desde la interfaz y ve la espera", async ({ page }) => {
   await page.goto("/");
+  await expect(page.getByRole("button", { name: "Iniciar sesión" })).toBeVisible();
+  await expectAccessible(page, "login");
   await page.getByRole("button", { name: "Primera vez: activar mi cuenta" }).click();
   await page.getByLabel("Carnet de identidad", { exact: true }).fill(BEATRIZ.ci);
   await page.getByLabel("Nueva contraseña").fill(BEATRIZ.password);
-  await page.getByLabel("Repite la contraseña").fill(BEATRIZ.password);
+  await page.getByLabel("Repita la contraseña").fill(BEATRIZ.password);
   await page.getByRole("button", { name: "Activar cuenta" }).click();
   await expect(page.getByText(/Cuenta activada/)).toBeVisible();
   await capture(page, "01-activacion");
@@ -44,56 +63,62 @@ test("la electora activa su cuenta desde la interfaz y ve la espera", async ({ p
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
   await expect(page.getByText("La Votación aún no ha comenzado")).toBeVisible();
   await expect(page.getByRole("button", { name: "Administración" })).toHaveCount(0);
+  await expect(page.getByText(/Sufragio/)).toHaveCount(0);
+  await expectAccessible(page, "espera-elector");
   await capture(page, "02-espera-elector");
 });
 
 test("la Comisión abre la votación", async ({ page }) => {
-  page.on("dialog", (d) => d.accept());
   await login(page, "Liz", AUTHORITY_PASSWORD);
-  await page.getByRole("button", { name: "Abrir Votación" }).click();
-  await expect(page.getByRole("button", { name: "Cerrar Votación y Sellar Urnas" })).toBeVisible();
+  await expectAccessible(page, "panel-comision");
+  await confirmAction(page, "Abrir votación");
+  await expect(page.getByRole("button", { name: "Cerrar votación", exact: true })).toBeVisible();
   await capture(page, "03-votacion-abierta");
 });
 
 test("la electora vota en escritorio y verifica su comprobante", async ({ page }) => {
   await login(page, BEATRIZ.ci, BEATRIZ.password);
-  const firstRow = page.locator("table tbody tr").first();
-  await firstRow.locator('input[type="checkbox"]').check();
-  await firstRow.locator('input[type="radio"]').check();
+  await page.getByRole("checkbox", { name: /^Miembro: / }).first().check();
+  await page.getByRole("radio", { name: /^Presidente: / }).first().check();
+  await expectAccessible(page, "boleta");
   await capture(page, "04-boleta-marcada");
-  await page.getByRole("button", { name: "Depositar Voto Válido en la Urna" }).click();
+  await page.getByRole("button", { name: "Revisar y votar" }).click();
+  const review = page.getByRole("dialog", { name: "Revise su voto" });
+  await expect(review).toBeVisible();
+  await capture(page, "05a-revision");
+  await review.getByRole("button", { name: "Confirmar voto" }).click();
   await expect(page.getByText("Voto registrado")).toBeVisible();
   await capture(page, "05-voto-registrado");
 
   await page.getByRole("button", { name: "Verificar comprobante" }).click();
-  await expect(page.getByText("Tu boleta está en la urna y se contará en el escrutinio.")).toBeVisible();
+  await expect(page.getByText("Su boleta está en la urna y se contará en el escrutinio.")).toBeVisible();
   await capture(page, "06-comprobante-verificado");
 });
 
 test("otro elector anula su boleta en móvil (375 px) sin scroll horizontal", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await login(page, CARLOS.ci, CARLOS.password);
-  await expect(page.getByRole("button", { name: "Anular boleta conscientemente" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Anular mi boleta" })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
   await capture(page, "07-boleta-movil");
 
-  await page.getByRole("button", { name: "Anular boleta conscientemente" }).click();
+  await page.getByRole("button", { name: "Anular mi boleta" }).click();
   await page.getByRole("button", { name: "Sí, anular boleta" }).click();
   await expect(page.getByText("Boleta anulada registrada")).toBeVisible();
   await capture(page, "08-anulada-movil");
 });
 
 test("la Comisión cierra y escruta: sin quórum no se proclama", async ({ page }) => {
-  page.on("dialog", (d) => d.accept());
   await login(page, "Liz", AUTHORITY_PASSWORD);
-  await page.getByRole("button", { name: "Cerrar Votación y Sellar Urnas" }).click();
-  await expect(page.getByRole("button", { name: "Abrir Votación" })).toHaveCount(0);
+  await confirmAction(page, "Cerrar votación");
+  await expect(page.getByRole("button", { name: "Abrir votación", exact: true })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Escrutinio" }).click();
-  await page.getByRole("button", { name: "Realizar Escrutinio Oficial" }).click();
-  await expect(page.getByText("Elección no Válida (Art. 38 del ABC)")).toBeVisible();
-  await expect(page.getByText("Presidente Electo de la Facultad")).toHaveCount(0);
-  await expect(page.getByText("Acta Oficial de Escrutinio y Proclamación")).toHaveCount(0);
+  await confirmAction(page, "Realizar escrutinio");
+  await expect(page.getByText("La elección no es válida por falta de quórum (Art. 38)")).toBeVisible();
+  await expect(page.getByText(/Presidente electo de la Facultad/)).toHaveCount(0);
+  await expect(page.getByText("Acta de escrutinio y proclamación")).toHaveCount(0);
+  await expectAccessible(page, "sin-quorum");
   await capture(page, "09-sin-quorum");
 });

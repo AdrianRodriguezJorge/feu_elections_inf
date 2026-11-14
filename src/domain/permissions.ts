@@ -89,7 +89,7 @@ export function canCastBallot(
     return { allowed: false, reason: "El elector no está habilitado en el registro de electores de la estructura." };
   }
   if (hasAlreadyVoted) {
-    return { allowed: false, reason: "Ya emitiste tu voto en este proceso electoral." };
+    return { allowed: false, reason: "Ya emitió su voto en este proceso electoral." };
   }
   return { allowed: true };
 }
