@@ -1,215 +1,104 @@
-import { PrismaClient, StructureType, ProcessType, ProcessStatus, UserRole as PrismaUserRole, Office } from "@prisma/client";
+/**
+ * Seed de la elección del Secretariado (Facultad de Ingeniería Informática).
+ *
+ * Deja la base en estado inicial limpio: estructura, brigadas, autoridades y una
+ * candidatura de demostración, con el proceso en CONVOCADO.
+ *
+ *  - Se niega a ejecutarse si hay boletas emitidas: una elección con votos nunca
+ *    se reinicia (además, los triggers WORM impiden vaciar la urna).
+ *  - Nadie recibe contraseña: autoridades y electores activan su cuenta con su
+ *    carnet y eligen la suya (decisión F3).
+ *  - Cada autoridad recibe su propio secreto TOTP (el segundo factor está
+ *    desactivado por ahora; se activa con AUTH_MFA_ENABLED=true).
+ *  - Carnets de prueba válidos (validateCI) y sin correos electrónicos.
+ */
+
+import { CommissionRole, Office, PrismaClient, ProcessStatus, ProcessType, StructureType, UserRole } from "@prisma/client";
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { generateMfaSecret, hashPassword } from "../src/domain/auth";
 import { createGenesisAuditEntry } from "../src/domain/audit";
+import { generateMfaSecret } from "../src/domain/auth";
 import { buildCandidacySnapshot, CandidateInput } from "../src/domain/candidates";
+import { validateCI } from "../src/domain/ci";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const prisma = new PrismaClient();
 
-// Cada autoridad recibe su propio secreto TOTP. En desarrollo local el código vigente
-// se consulta en /api/auth/totp/current?id=<nombre o carnet> (no existe en producción).
-
-/** Códigos de brigada reales de la Facultad de Ingeniería Informática. */
+const FACULTY_NAME = "Facultad de Ingeniería Informática";
 const BRIGADE_CODES = ["11", "12", "22", "32", "41"];
 
-/** 10 candidatos oficiales de la Facultad (siglo XX). */
-const CANDIDATES: Array<{
-  id: string;
-  firstSurname: string;
-  secondSurname: string | null;
+interface Person {
+  ci: string;
   name: string;
-  ci: string;
-  brigade: string;
-  year: number;
-  biographyMd: string;
-}> = [
-  { id: "can-01", firstSurname: "Mendoza", secondSurname: "Ramos", name: "Carlos", ci: "98021411223", brigade: "41", year: 4, biographyMd: "Estudiante de 4to año. Promedio: 4.85. Miembro activo de la FEU." },
-  { id: "can-02", firstSurname: "Navarro", secondSurname: "Pino", name: "Beatriz", ci: "98052122334", brigade: "41", year: 4, biographyMd: "Estudiante de 4to año. Delegada deportiva de la facultad." },
-  { id: "can-03", firstSurname: "Gómez", secondSurname: "Herrera", name: "Daniel", ci: "98081533445", brigade: "22", year: 3, biographyMd: "Estudiante de 3er año. Presidente de brigada 22." },
-  { id: "can-04", firstSurname: "Castillo", secondSurname: "Vargas", name: "Elena", ci: "98110344556", brigade: "22", year: 3, biographyMd: "Estudiante de 3er año. Activista de extensión universitaria." },
-  { id: "can-05", firstSurname: "Iglesias", secondSurname: "Morales", name: "Fernando", ci: "99031255667", brigade: "12", year: 2, biographyMd: "Estudiante de 2do año. Secretario de docencia de brigada." },
-  { id: "can-06", firstSurname: "Ortega", secondSurname: "Serrano", name: "Gabriela", ci: "99062566778", brigade: "12", year: 2, biographyMd: "Estudiante de 2do año. Coordinadora cultural." },
-  { id: "can-07", firstSurname: "Paredes", secondSurname: "Fuentes", name: "Héctor", ci: "99090877889", brigade: "11", year: 1, biographyMd: "Estudiante de 1er año. Delegado de brigada 11." },
-  { id: "can-08", firstSurname: "Romero", secondSurname: "Cruz", name: "Isabel", ci: "99101988990", brigade: "11", year: 1, biographyMd: "Estudiante de 1er año. Organizadora estudiantil." },
-  { id: "can-09", firstSurname: "Soto", secondSurname: "Delgado", name: "Javier", ci: "99120499001", brigade: "32", year: 3, biographyMd: "Estudiante de 3er año. Ayudante de cátedra." },
-  { id: "can-10", firstSurname: "Molina", secondSurname: "Reyes", name: "Katia", ci: "97070710293", brigade: "32", year: 4, biographyMd: "Estudiante de 4to año. Vanguardia integral." },
-];
-
-/** 10 electores estudiantes base del padrón (siglo XX). */
-const ELECTORS: Array<{
-  ci: string;
-  firstName: string;
   firstSurname: string;
   secondSurname: string | null;
-  fullName: string;
-  brigadeCode: string;
-}> = [
-  { ci: "98021411223", firstName: "Carlos", firstSurname: "Mendoza", secondSurname: "Ramos", fullName: "Carlos Mendoza Ramos", brigadeCode: "41" },
-  { ci: "98052122334", firstName: "Beatriz", firstSurname: "Navarro", secondSurname: "Pino", fullName: "Beatriz Navarro Pino", brigadeCode: "41" },
-  { ci: "98081533445", firstName: "Daniel", firstSurname: "Gómez", secondSurname: "Herrera", fullName: "Daniel Gómez Herrera", brigadeCode: "22" },
-  { ci: "98110344556", firstName: "Elena", firstSurname: "Castillo", secondSurname: "Vargas", fullName: "Elena Castillo Vargas", brigadeCode: "22" },
-  { ci: "99031255667", firstName: "Fernando", firstSurname: "Iglesias", secondSurname: "Morales", fullName: "Fernando Iglesias Morales", brigadeCode: "12" },
-  { ci: "99062566778", firstName: "Gabriela", firstSurname: "Ortega", secondSurname: "Serrano", fullName: "Gabriela Ortega Serrano", brigadeCode: "12" },
-  { ci: "99090877889", firstName: "Héctor", firstSurname: "Paredes", secondSurname: "Fuentes", fullName: "Héctor Paredes Fuentes", brigadeCode: "11" },
-  { ci: "99101988990", firstName: "Isabel", firstSurname: "Romero", secondSurname: "Cruz", fullName: "Isabel Romero Cruz", brigadeCode: "11" },
-  { ci: "99120499001", firstName: "Javier", firstSurname: "Soto", secondSurname: "Delgado", fullName: "Javier Soto Delgado", brigadeCode: "32" },
-  { ci: "97070710293", firstName: "Katia", firstSurname: "Molina", secondSurname: "Reyes", fullName: "Katia Molina Reyes", brigadeCode: "32" },
+  brigade: string;
+}
+
+/** Autoridades del sistema (carnets de prueba válidos). */
+const AUTHORITIES: Array<Person & { role: UserRole; commissionRole: CommissionRole | null }> = [
+  { ci: "99091978927", name: "Adrian", firstSurname: "", secondSurname: null, brigade: "41", role: UserRole.ADMIN, commissionRole: null },
+  { ci: "06091668099", name: "Liz", firstSurname: "", secondSurname: null, brigade: "41", role: UserRole.COMMISSION, commissionRole: CommissionRole.PRESIDENTE },
+  { ci: "04021514560", name: "Revisor", firstSurname: "", secondSurname: null, brigade: "41", role: UserRole.COMMISSION, commissionRole: CommissionRole.MIEMBRO },
 ];
 
-async function dropWormTriggers() {
-  try {
-    await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS trg_prevent_ballot_update ON ballots;`);
-    await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS trg_prevent_ballot_delete ON ballots;`);
-    await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS trg_prevent_audit_update ON audit_events;`);
-    await prisma.$executeRawUnsafe(`DROP TRIGGER IF EXISTS trg_prevent_audit_delete ON audit_events;`);
-  } catch (e) {
-    console.warn("Aviso al remover triggers:", e);
-  }
-}
+/** Candidatura de demostración: también son electores del padrón. */
+const CANDIDATES: Array<Person & { year: number; biographyMd: string }> = [
+  { ci: "98021411223", name: "Carlos", firstSurname: "Mendoza", secondSurname: "Ramos", brigade: "41", year: 4, biographyMd: "Estudiante de 4to año. Miembro activo de la FEU." },
+  { ci: "98052122334", name: "Beatriz", firstSurname: "Navarro", secondSurname: "Pino", brigade: "41", year: 4, biographyMd: "Estudiante de 4to año. Delegada deportiva de la facultad." },
+  { ci: "98081533445", name: "Daniel", firstSurname: "Gómez", secondSurname: "Herrera", brigade: "22", year: 3, biographyMd: "Estudiante de 3er año. Presidente de la brigada 22." },
+  { ci: "98110344556", name: "Elena", firstSurname: "Castillo", secondSurname: "Vargas", brigade: "22", year: 3, biographyMd: "Estudiante de 3er año. Activista de extensión universitaria." },
+  { ci: "99031255667", name: "Fernando", firstSurname: "Iglesias", secondSurname: "Morales", brigade: "12", year: 2, biographyMd: "Estudiante de 2do año. Secretario de docencia de brigada." },
+  { ci: "99062566778", name: "Gabriela", firstSurname: "Ortega", secondSurname: "Serrano", brigade: "12", year: 2, biographyMd: "Estudiante de 2do año. Coordinadora cultural." },
+  { ci: "99090877889", name: "Héctor", firstSurname: "Paredes", secondSurname: "Fuentes", brigade: "11", year: 1, biographyMd: "Estudiante de 1er año. Delegado de la brigada 11." },
+  { ci: "99101988990", name: "Isabel", firstSurname: "Romero", secondSurname: "Cruz", brigade: "11", year: 1, biographyMd: "Estudiante de 1er año. Organizadora estudiantil." },
+  { ci: "99120499001", name: "Javier", firstSurname: "Soto", secondSurname: "Delgado", brigade: "32", year: 3, biographyMd: "Estudiante de 3er año. Ayudante de cátedra." },
+  { ci: "97070710293", name: "Katia", firstSurname: "Molina", secondSurname: "Reyes", brigade: "32", year: 4, biographyMd: "Estudiante de 4to año. Vanguardia integral." },
+];
 
-async function applyWormTriggers() {
-  // Triggers PL/pgSQL para garantizar WORM a nivel de motor de PostgreSQL
-  await prisma.$executeRawUnsafe(`
-    CREATE OR REPLACE FUNCTION fn_prevent_ballot_mutation()
-    RETURNS TRIGGER AS $$
-    BEGIN
-      IF TG_OP = 'UPDATE' THEN
-        RAISE EXCEPTION 'Violacion WORM (Art. 66 / RGF-33): Prohibido modificar boletas emitidas.';
-      ELSIF TG_OP = 'DELETE' THEN
-        RAISE EXCEPTION 'Violacion WORM (Art. 66 / RGF-33): Prohibido eliminar boletas de la urna ciega.';
-      END IF;
-      RETURN NULL;
-    END;
-    $$ LANGUAGE plpgsql;
-  `);
+const fullName = (p: Person) => [p.name, p.firstSurname, p.secondSurname].filter(Boolean).join(" ");
 
-  await prisma.$executeRawUnsafe(`
-    CREATE OR REPLACE FUNCTION fn_prevent_audit_mutation()
-    RETURNS TRIGGER AS $$
-    BEGIN
-      IF TG_OP = 'UPDATE' THEN
-        RAISE EXCEPTION 'Violacion WORM (Art. 66 / RGF-33): Prohibido modificar eventos de la cadena de auditoria.';
-      ELSIF TG_OP = 'DELETE' THEN
-        RAISE EXCEPTION 'Violacion WORM (Art. 66 / RGF-33): Prohibido eliminar eventos de la cadena de auditoria.';
-      END IF;
-      RETURN NULL;
-    END;
-    $$ LANGUAGE plpgsql;
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TRIGGER trg_prevent_ballot_update
-    BEFORE UPDATE ON ballots
-    FOR EACH ROW EXECUTE FUNCTION fn_prevent_ballot_mutation();
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TRIGGER trg_prevent_ballot_delete
-    BEFORE DELETE ON ballots
-    FOR EACH ROW EXECUTE FUNCTION fn_prevent_ballot_mutation();
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TRIGGER trg_prevent_audit_update
-    BEFORE UPDATE ON audit_events
-    FOR EACH ROW EXECUTE FUNCTION fn_prevent_audit_mutation();
-  `);
-
-  await prisma.$executeRawUnsafe(`
-    CREATE TRIGGER trg_prevent_audit_delete
-    BEFORE DELETE ON audit_events
-    FOR EACH ROW EXECUTE FUNCTION fn_prevent_audit_mutation();
-  `);
-}
+/** Todas las tablas de la aplicación (TRUNCATE ... CASCADE en un solo comando). */
+const TABLES = [
+  "ballot_selections", "ballots", "participations", "results", "vice_president_designations",
+  "vacancy_events", "acts", "audit_events", "commission_seats", "commissions", "process_candidates",
+  "candidacies", "candidates", "electoral_processes", "memberships", "users", "brigades", "structures",
+  "regulation_articles",
+];
 
 async function main() {
-  console.log("Iniciando sembrado completo en PostgreSQL (FEU)...");
-
-  // 1. Deshabilitar triggers temporalmente para permitir limpieza
-  await dropWormTriggers();
-
-  // 2. Limpieza en orden
-  await prisma.ballotSelection.deleteMany();
-  await prisma.ballot.deleteMany();
-  await prisma.participation.deleteMany();
-  await prisma.resultCandidate.deleteMany();
-  await prisma.result.deleteMany();
-  await prisma.processCandidate.deleteMany();
-  await prisma.candidacy.deleteMany();
-  await prisma.vicePresidentDesignation.deleteMany();
-  await prisma.vacancyEvent.deleteMany();
-  await prisma.act.deleteMany();
-  await prisma.claim.deleteMany();
-  await prisma.auditEvent.deleteMany();
-  await prisma.importError.deleteMany();
-  await prisma.importBatch.deleteMany();
-  await prisma.regulationArticle.deleteMany();
-  await prisma.commissionSeat.deleteMany();
-  await prisma.commission.deleteMany();
-  await prisma.electoralProcess.deleteMany();
-  await prisma.membership.deleteMany();
-  await prisma.candidate.deleteMany();
-  await prisma.brigade.deleteMany();
-  await prisma.structure.deleteMany();
-  await prisma.user.deleteMany();
-
-  // 3. Estructura y Brigadas
-  const faculty = await prisma.structure.create({
-    data: { type: StructureType.FACULTAD, name: "Facultad de Ingeniería Informática", level: 2 },
-  });
-
-  const brigades = new Map<string, string>();
-  for (const code of BRIGADE_CODES) {
-    const brigade = await prisma.brigade.create({
-      data: { structureId: faculty.id, code, name: `Brigada ${code}` },
-    });
-    brigades.set(code, brigade.id);
+  // 0. Validación de los datos de prueba
+  for (const p of [...AUTHORITIES, ...CANDIDATES]) {
+    const check = validateCI(p.ci);
+    if (!check.valid) throw new Error(`Carnet de prueba inválido (${p.ci}): ${check.error}`);
   }
 
-  // 4. Usuarios Persona Oficiales (F2 / F7)
-  const adminUser = await prisma.user.create({
-    data: {
-      ci: "99091978927",
-      email: "adrian@estudiantes.cujae.edu.cu",
-      name: "Adrian",
-      passwordHash: hashPassword("99091978927"),
-      mfaSecret: generateMfaSecret(),
-      role: PrismaUserRole.ADMIN,
-      active: true,
-    },
-  });
+  // 1. Nunca reiniciar una elección con votos
+  const ballots = await prisma.ballot.count();
+  if (ballots > 0) {
+    throw new Error(
+      `La base tiene ${ballots} boleta(s) emitida(s): el seed no reinicia elecciones con votos (Art. 66).`,
+    );
+  }
 
-  const commissionPresident = await prisma.user.create({
-    data: {
-      ci: "06091668099",
-      email: "liz@estudiantes.cujae.edu.cu",
-      name: "Liz",
-      passwordHash: hashPassword("06091668099"),
-      mfaSecret: generateMfaSecret(),
-      role: PrismaUserRole.COMMISSION,
-      active: true,
-    },
-  });
+  // 2. Limpieza total (permitida por los triggers WORM solo con la urna vacía)
+  await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${TABLES.map((t) => `"${t}"`).join(", ")} RESTART IDENTITY CASCADE`);
 
-  const commissionSecond = await prisma.user.create({
-    data: {
-      ci: "11111111111",
-      email: "revisor@estudiantes.cujae.edu.cu",
-      name: "Revisor",
-      passwordHash: hashPassword("11111111111"),
-      mfaSecret: generateMfaSecret(),
-      role: PrismaUserRole.COMMISSION,
-      active: true,
-    },
+  // 3. Estructura y brigadas
+  const faculty = await prisma.structure.create({
+    data: { type: StructureType.FACULTAD, name: FACULTY_NAME, level: 2 },
   });
+  const brigades = new Map<string, string>();
+  for (const code of BRIGADE_CODES) {
+    const b = await prisma.brigade.create({ data: { structureId: faculty.id, code, name: `Brigada ${code}` } });
+    brigades.set(code, b.id);
+  }
 
-  // 5. Candidatos de la Facultad
+  // 4. Candidatura (snapshot ordenado y hasheado, INV-17)
   const candidateInputs: CandidateInput[] = CANDIDATES.map((c) => ({
-    id: c.id,
-    studentId: `CAN-${c.ci.slice(-6)}`,
+    id: c.ci,
+    studentId: c.ci,
     name: c.name,
     firstSurname: c.firstSurname,
     secondSurname: c.secondSurname ?? undefined,
@@ -217,15 +106,30 @@ async function main() {
     brigadeCode: c.brigade,
     biographyMd: c.biographyMd,
   }));
+  const snapshot = buildCandidacySnapshot(candidateInputs);
+  if (!snapshot.valid) throw new Error("La candidatura de demostración no es válida.");
 
-  const snapshotOutcome = buildCandidacySnapshot(candidateInputs);
-  const seats = CANDIDATES.length - 2; // 9 puestos (RGF-08)
+  const process = await prisma.electoralProcess.create({
+    data: {
+      structureId: faculty.id,
+      type: ProcessType.SECRETARIADO,
+      academicYear: "2026-2027",
+      status: ProcessStatus.CONVOCADO,
+      candidatesCount: CANDIDATES.length,
+      seats: snapshot.seats,
+      quorumPct: 85,
+      snapshotHash: snapshot.candidacyHash,
+    },
+  });
+  await prisma.candidacy.create({
+    data: { processId: process.id, status: "CONGELADA", totalCandidates: CANDIDATES.length, hash: snapshot.candidacyHash },
+  });
 
-  const candidateMap = new Map<string, string>();
+  const candidateIds = new Map<string, string>();
   for (const c of CANDIDATES) {
-    const candRecord = await prisma.candidate.create({
+    const row = await prisma.candidate.create({
       data: {
-        studentId: `CAN-${c.ci.slice(-6)}`,
+        studentId: c.ci,
         firstSurname: c.firstSurname,
         secondSurname: c.secondSurname,
         name: c.name,
@@ -237,159 +141,88 @@ async function main() {
         brigadeValidated: true,
       },
     });
-    candidateMap.set(c.ci, candRecord.id);
+    candidateIds.set(c.ci, row.id);
   }
-
-  // 6. Proceso Electoral en CONVOCADO
-  const process = await prisma.electoralProcess.create({
-    data: {
-      structureId: faculty.id,
-      type: ProcessType.SECRETARIADO,
-      academicYear: "2026-2027",
-      status: ProcessStatus.CONVOCADO,
-      candidatesCount: CANDIDATES.length,
-      seats,
-      proposalSlots: 0,
-      votingMode: "SECRET",
-      quorumPct: 85,
-      majorityRule: "TOP_N",
-      tieRule: "PRESIDENT_VOTES_THEN_RUNOFF",
-      columns: ["NAME", "BRIGADE", "MEMBER", "PRESIDENT"],
-      snapshotHash: snapshotOutcome.candidacyHash,
-    },
-  });
-
-  await prisma.candidacy.create({
-    data: {
-      processId: process.id,
-      status: "CONGELADA",
-      totalCandidates: CANDIDATES.length,
-      hash: snapshotOutcome.candidacyHash,
-    },
-  });
-
-  // 7. Asociar Candidatos al Proceso con Posición Inmutable
-  let pos = 1;
-  for (const snap of snapshotOutcome.snapshot) {
-    const candDbId = candidateMap.get(snap.ci);
-    if (!candDbId) continue;
+  let position = 1;
+  for (const entry of snapshot.snapshot) {
     await prisma.processCandidate.create({
       data: {
-        id: snap.candidateId,
         processId: process.id,
-        candidateId: candDbId,
-        ballotPosition: pos++,
-        status: "ACTIVO",
+        candidateId: candidateIds.get(entry.ci)!,
+        ballotPosition: position++,
         office: Office.NO_ELECTO,
       },
     });
   }
 
-  // 8. Listado de Electores (Padrón)
-  // Incluye el administrador, las autoridades electorales y los 10 estudiantes
-  const allElectors = [
-    { ci: adminUser.ci!, firstName: "Adrian", firstSurname: "", secondSurname: null, fullName: "Adrian", brigadeCode: "41" },
-    { ci: commissionPresident.ci!, firstName: "Liz", firstSurname: "", secondSurname: null, fullName: "Liz", brigadeCode: "41" },
-    { ci: commissionSecond.ci!, firstName: "Revisor", firstSurname: "", secondSurname: null, fullName: "Revisor", brigadeCode: "41" },
-    ...ELECTORS,
-  ];
-
-  for (const elector of allElectors) {
-    const userMatch =
-      elector.ci === adminUser.ci
-        ? adminUser
-        : elector.ci === commissionPresident.ci
-        ? commissionPresident
-        : elector.ci === commissionSecond.ci
-        ? commissionSecond
-        : null;
-
-    // Los electores se siembran SIN activar: cada uno activa su cuenta con su carnet
-    // y elige su contraseña (decisión F1). Las autoridades llegan activadas.
-    let userRecord = userMatch;
-    if (!userRecord) {
-      userRecord = await prisma.user.create({
-        data: {
-          ci: elector.ci,
-          email: `${elector.ci}@sin-correo.invalid`,
-          name: elector.fullName,
-          passwordHash: null,
-          mfaSecret: null,
-          role: PrismaUserRole.VOTER,
-          active: true,
-        },
-      });
-    }
-
+  // 5. Usuarios y padrón: autoridades y electores, todos SIN contraseña
+  const userIds = new Map<string, string>();
+  for (const person of [...AUTHORITIES, ...CANDIDATES]) {
+    const authority = AUTHORITIES.find((a) => a.ci === person.ci);
+    const user = await prisma.user.create({
+      data: {
+        ci: person.ci,
+        name: fullName(person),
+        passwordHash: null,
+        role: authority?.role ?? UserRole.VOTER,
+        mfaSecret: authority && authority.role !== UserRole.VOTER ? generateMfaSecret() : null,
+        active: true,
+      },
+    });
+    userIds.set(person.ci, user.id);
     await prisma.membership.create({
       data: {
         structureId: faculty.id,
-        studentId: elector.ci,
-        fullName: elector.fullName,
-        firstName: elector.firstName,
-        lastName: elector.firstSurname || elector.firstName,
-        userId: userRecord.id,
-        brigadeId: brigades.get(elector.brigadeCode) ?? null,
+        studentId: person.ci,
+        fullName: fullName(person),
+        firstName: person.name,
+        lastName: [person.firstSurname, person.secondSurname].filter(Boolean).join(" ") || null,
+        brigadeId: brigades.get(person.brigade) ?? null,
+        userId: user.id,
         eligible: true,
       },
     });
   }
 
-  // 9. Comisión Electoral
+  // 6. Comisión Electoral (Art. 47)
+  const commissionMembers = AUTHORITIES.filter((a) => a.commissionRole);
   const commission = await prisma.commission.create({
     data: {
       processId: process.id,
-      presidentId: commissionPresident.id,
-      vicePresidentId: commissionSecond.id,
-      members: BRIGADE_CODES,
-      acta: "Acta de constitución de la Comisión Electoral (Facultad de Ingeniería Informática).",
+      presidentId: userIds.get(commissionMembers.find((a) => a.commissionRole === CommissionRole.PRESIDENTE)!.ci) ?? null,
+      acta: "Acta de constitución de la Comisión Electoral de la Facultad.",
     },
   });
-
-  await prisma.commissionSeat.create({
-    data: { commissionId: commission.id, userId: commissionPresident.id, role: "PRESIDENTE" },
-  });
-  await prisma.commissionSeat.create({
-    data: { commissionId: commission.id, userId: commissionSecond.id, role: "SECRETARIO" },
-  });
-
-  // 10. Reglamento Oficial
-  try {
-    const regFile = readFileSync(resolve(__dirname, "regulation.seed.json"), "utf8");
-    const regulation = JSON.parse(regFile) as {
-      document: string;
-      articles: Array<{
-        part: string;
-        article: string;
-        page: number | null;
-        literalText: string;
-      }>;
-    };
-
-    for (const item of regulation.articles) {
-      await prisma.regulationArticle.create({
-        data: {
-          document: regulation.document,
-          part: item.part,
-          article: item.article,
-          page: item.page,
-          literalText: item.literalText,
-          sourceHash: "ABC-FEU-2019.pdf",
-        },
-      });
-    }
-  } catch (regErr) {
-    console.warn("Aviso: no se encontró regulation.seed.json, continuando...", regErr);
+  for (const member of commissionMembers) {
+    await prisma.commissionSeat.create({
+      data: { commissionId: commission.id, userId: userIds.get(member.ci)!, role: member.commissionRole! },
+    });
   }
 
-  // 11. Evento Génesis WORM
-  const genesis = createGenesisAuditEntry({
-    process: "Elección del Secretariado - Facultad de Ingeniería Informática",
-    seats,
-    candidacyHash: snapshotOutcome.candidacyHash,
-    eligibleMembers: allElectors.length,
+  // 7. Reglamento (texto literal del PDF)
+  const regulation = JSON.parse(readFileSync(resolve(__dirname, "regulation.seed.json"), "utf8")) as {
+    document: string;
+    articles: Array<{ part: string; article: string; page: number | null; literalText: string }>;
+  };
+  await prisma.regulationArticle.createMany({
+    data: regulation.articles.map((a) => ({
+      document: regulation.document,
+      part: a.part,
+      article: a.article,
+      page: a.page,
+      literalText: a.literalText,
+      sourceHash: "ABC-FEU-2019.pdf",
+    })),
   });
 
+  // 8. Génesis de la cadena de auditoría
+  const electors = AUTHORITIES.length + CANDIDATES.length;
+  const genesis = createGenesisAuditEntry({
+    process: `Elección del Secretariado - ${FACULTY_NAME}`,
+    seats: snapshot.seats,
+    candidacyHash: snapshot.candidacyHash,
+    eligibleMembers: electors,
+  });
   await prisma.auditEvent.create({
     data: {
       processId: process.id,
@@ -406,20 +239,15 @@ async function main() {
     },
   });
 
-  // 12. Activar Blindaje WORM
-  await applyWormTriggers();
-
   console.log(
-    `[SEED] PostgreSQL sembrado exitosamente: ` +
-    `${CANDIDATES.length} candidatos, ${seats} puestos, ` +
-    `${allElectors.length} electores en padrón (sin activar), 3 autoridades con TOTP propio, ` +
-    `cadena WORM con génesis, y triggers PL/pgSQL activos.`,
+    `[SEED] Base reiniciada: ${CANDIDATES.length} candidatos, ${snapshot.seats} puestos, ${electors} electores ` +
+      `(sin activar), ${AUTHORITIES.length} autoridades, ${regulation.articles.length} artículos. Proceso en CONVOCADO.`,
   );
 }
 
 main()
   .catch((e) => {
-    console.error("Error en el seed de PostgreSQL:", e);
+    console.error("[SEED] Error:", e instanceof Error ? e.message : e);
     process.exit(1);
   })
   .finally(async () => {

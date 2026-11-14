@@ -6,10 +6,11 @@
 // presidencia resuelto por la Comisión con acta, escrutinio único, VP,
 // vacante presidencial, nuevo VP e integridad de la cadena de auditoría.
 
-import { client as makeClient } from "./client.mjs";
+import { activate, AUTHORITIES, AUTHORITY_PASSWORD, client as makeClient } from "./client.mjs";
 
 const BASE = process.argv[2] ?? "http://localhost:3005";
 const client = () => makeClient(BASE);
+for (const ci of Object.values(AUTHORITIES)) await activate(BASE, ci, AUTHORITY_PASSWORD);
 let failures = 0;
 function check(name, condition, detail = "") {
   console.log(`${condition ? "PASS" : "FAIL"}  ${name}${condition || !detail ? "" : `  -> ${detail}`}`);
@@ -25,9 +26,9 @@ const PASSWORD = "Prueba2026x";
 const admin = client();
 const liz = client();
 const revisor = client();
-check("Admin entra", (await admin.login("Adrian", "99091978927")) === null);
-check("Liz entra", (await liz.login("Liz", "06091668099")) === null);
-check("Revisor entra", (await revisor.login("Revisor", "11111111111")) === null);
+check("Admin entra", (await admin.login("Adrian", AUTHORITY_PASSWORD)) === null);
+check("Liz entra", (await liz.login("Liz", AUTHORITY_PASSWORD)) === null);
+check("Revisor entra", (await revisor.login("Revisor", AUTHORITY_PASSWORD)) === null);
 
 // --- Excepción de quórum ----------------------------------------------------
 let r = await liz.post("/api/eleccion/quorum", { pct: 80, justification: "Prueba de permisos", acta: "A-1" });

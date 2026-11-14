@@ -513,12 +513,12 @@ export function AdminPanel({
               </div>
               <span className="rounded-full bg-feu-green-100 px-3 py-1 text-xs font-bold text-feu-green-800 uppercase">
                 {member.office === "PRESIDENT"
-                  ? "PRESIDENTA"
+                  ? "PRESIDENCIA"
                   : member.office === "VICE_PRESIDENT"
                   ? "REVISOR / 2DO MIEMBRO"
                   : member.office === "SECRETARY"
-                  ? "SECRETARIA"
-                  : member.office}
+                  ? "SECRETARÍA"
+                  : "MIEMBRO / REVISOR"}
               </span>
             </div>
           ))}

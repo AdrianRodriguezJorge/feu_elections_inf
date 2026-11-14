@@ -25,37 +25,32 @@ La especificación completa está en [`docs/migracion-web/`](docs/migracion-web/
 
 ## Arranque rápido
 
+Requisitos: Node 24 y PostgreSQL (local, instalado como servicio).
+
 ```bash
-# 1. Dependencias
 npm install
-
-# 2. Base de datos
-docker run -d --name feu-postgres \
-  -e POSTGRES_PASSWORD=feu -e POSTGRES_DB=feu -p 5432:5432 postgres:17
-cp .env.example .env
-
-# 3. Esquema y datos de ejemplo
-npm run db:push
-npm run db:seed
-
-# 4. Desarrollo
+cp .env.example .env          # ajustar DATABASE_URL y AUTH_SECRET
+npm run db:deploy             # aplica las migraciones (esquema, triggers WORM, CHECK)
+npm run db:seed               # datos iniciales: proceso en CONVOCADO, nadie activado
 npm run dev
 ```
+
+Todas las cuentas (autoridades incluidas) se **activan** desde la pantalla de inicio con el carnet de identidad, eligiendo una contraseña propia, mientras el proceso está en CONVOCADO.
 
 ## Comandos
 
 | Comando | Qué hace |
 |---|---|
 | `npm run dev` | Servidor de desarrollo |
-| `npm run build` | Compilación de producción |
+| `npm run build` | Migraciones (`prisma migrate deploy`) y compilación de producción |
 | `npm run test` | Pruebas del dominio (vitest) |
 | `npm run typecheck` | Comprobación de tipos |
-| `npm run lint` | ESLint |
-| `npm run db:generate` | Regenera el cliente Prisma |
-| `npm run db:push` | Aplica el esquema sin migración |
-| `npm run db:migrate` | Crea una migración |
-| `npm run db:seed` | Carga datos de ejemplo (11 candidatos → 9 puestos) |
-| `npm run db:studio` | Visor de datos |
+| `npm run db:migrate` | Crea una migración nueva en desarrollo |
+| `npm run db:deploy` | Aplica las migraciones pendientes |
+| `npm run db:seed` | Reinicia la base con los datos iniciales (se niega si hay boletas) |
+| `npm run db:reset` | Borra la base, aplica migraciones y siembra (**solo pruebas**) |
+| `node tests/security/f1-attacks.mjs` | Regresión de seguridad contra un servidor local |
+| `node tests/security/f2-flow.mjs` | Jornada electoral completa contra un servidor local |
 
 ## Módulo Reglamento
 

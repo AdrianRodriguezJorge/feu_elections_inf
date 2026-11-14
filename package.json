@@ -4,11 +4,11 @@
   "private": true,
   "description": "Sistema de elección del Secretariado de la Facultad de Ingeniería Informática (FEU)",
   "engines": {
-    "node": "26.x"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "next dev",
-    "build": "prisma generate && node scripts/auto-migrate.mjs && next build",
+    "build": "prisma generate && prisma migrate deploy && next build",
     "start": "next start",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
@@ -16,9 +16,10 @@
     "test:watch": "vitest",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate dev",
-    "db:push": "prisma db push",
     "db:seed": "tsx prisma/seed.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "db:deploy": "prisma migrate deploy",
+    "db:reset": "prisma migrate reset --force"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

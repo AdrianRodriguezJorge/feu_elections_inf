@@ -8,10 +8,11 @@
 // Escribe datos (activa una cuenta, abre la votación y emite un voto), así que
 // la BD debe resembrarse después.
 
-import { client as makeClient } from "./client.mjs";
+import { activate, AUTHORITIES, AUTHORITY_PASSWORD, client as makeClient } from "./client.mjs";
 
 const BASE = process.argv[2] ?? "http://localhost:3005";
 const client = () => makeClient(BASE);
+for (const ci of Object.values(AUTHORITIES)) await activate(BASE, ci, AUTHORITY_PASSWORD);
 let failures = 0;
 
 function check(name, condition, detail = "") {
@@ -77,7 +78,7 @@ check("Un elector no puede abrir la votación (403)", r.status === 403, `status 
 // TOTP desactivado por decisión F2 (se reactiva con AUTH_MFA_ENABLED=true).
 const liz = client();
 check("Liz con contraseña incorrecta → rechazada", (await liz.login("Liz", "contrasena-mala")) === "credentials");
-check("Liz entra con su contraseña", (await liz.login("Liz", "06091668099")) === null);
+check("Liz entra con su contraseña", (await liz.login("Liz", AUTHORITY_PASSWORD)) === null);
 r = await liz.post("/api/cuenta/restablecer", { ci: KATIA_CI });
 check("Restablecer cuenta no activada → 404", r.status === 404, `status ${r.status}`);
 r = await liz.post("/api/eleccion/estado", { action: "ABRIR" });

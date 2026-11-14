@@ -47,3 +47,17 @@ export function client(BASE) {
   return { request, json, post, login, jar };
 }
 
+
+/** Activa la cuenta de un elector o autoridad (idempotente a efectos de los scripts). */
+export async function activate(BASE, ci, password) {
+  const res = await fetch(`${BASE}/api/cuenta/activar`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ ci, password }),
+  });
+  return res.status;
+}
+
+/** Contraseña de prueba de las autoridades en los scripts (solo BD local de pruebas). */
+export const AUTHORITY_PASSWORD = "Autoridad2026x";
+export const AUTHORITIES = { Adrian: "99091978927", Liz: "06091668099", Revisor: "04021514560" };

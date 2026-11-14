@@ -164,8 +164,6 @@ export async function activateAccount(
       : await tx.user.create({
           data: {
             ci,
-            // El esquema aún exige un correo único; no se muestra ni se usa (F3: hacerlo opcional).
-            email: `${ci}@sin-correo.invalid`,
             name: membership.fullName,
             passwordHash,
             role: "VOTER",
