@@ -25,6 +25,8 @@ async function login(page: Page, identifier: string, password: string) {
   await page.getByLabel("Carnet de identidad o nombre completo").fill(identifier);
   await page.getByLabel("Contraseña", { exact: true }).fill(password);
   await page.getByRole("button", { name: "Iniciar sesión" }).click();
+  // El inicio de sesión redirige a la ruta del rol: esperar a que cargue el área autenticada.
+  await expect(page.getByRole("button", { name: "Cerrar sesión" })).toBeVisible();
 }
 
 async function capture(page: Page, name: string) {
