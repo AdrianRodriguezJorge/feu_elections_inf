@@ -522,7 +522,7 @@ export function VoterBallot({ candidates, seats, me, onVoteCast, currentUser, st
                       type="button"
                       onClick={() => setBioCandidate(candidate)}
                       className="min-h-11 text-sm text-cujae-green-700 underline-offset-2 hover:underline"
-                      aria-label={`Leer biografía de ${displayName}`}
+                      aria-label={`Leer biografía y propuestas de ${displayName}`}
                     >
                       Leer biografía y propuestas
                     </button>
@@ -594,7 +594,7 @@ export function VoterBallot({ candidates, seats, me, onVoteCast, currentUser, st
                 <button
                   type="button"
                   onClick={() => setBioCandidate(candidate)}
-                  aria-label={`Ver propuestas de ${displayName}`}
+                  aria-label={`Propuestas de ${displayName}`}
                   className="shrink-0 min-h-11 text-xs font-semibold text-cujae-green-700 bg-emerald-50 px-3 rounded-lg hover:bg-emerald-100"
                 >
                   Propuestas
@@ -619,7 +619,8 @@ export function VoterBallot({ candidates, seats, me, onVoteCast, currentUser, st
                   ) : (
                     <Plus className="h-4 w-4" strokeWidth={2} aria-hidden />
                   )}
-                  <span>{isMember ? "Miembro" : "Marcar miembro"}</span>
+                  {/* El estado lo anuncia aria-pressed; el texto visible forma parte del nombre (WCAG 2.5.3). */}
+                  <span>Miembro</span>
                 </button>
 
                 <button
@@ -639,7 +640,7 @@ export function VoterBallot({ candidates, seats, me, onVoteCast, currentUser, st
                     strokeWidth={2}
                     aria-hidden
                   />
-                  <span>{isPresident ? "Presidente" : "Marcar presidente"}</span>
+                  <span>Presidente</span>
                 </button>
               </div>
             </div>
