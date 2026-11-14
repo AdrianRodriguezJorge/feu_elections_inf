@@ -1,0 +1,94 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tipos, lint, unitarios, integración y e2e
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: feu
+          POSTGRES_PASSWORD: feu
+          POSTGRES_DB: feu_ci
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U feu -d feu_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      # BD desechable del propio CI: los tests de integración la reinician.
+      DATABASE_URL: postgresql://feu:feu@localhost:5432/feu_ci?schema=public
+      ALLOW_DB_RESET: "true"
+      AUTH_SECRET: ci-only-secret-not-for-production-0123456789
+      APP_URL: http://localhost:3000
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Instalar dependencias
+        run: npm ci
+
+      - name: Generar cliente Prisma
+        run: npx prisma generate
+
+      - name: Tipos
+        run: npm run typecheck
+
+      - name: Lint
+        run: npx eslint app src tests prisma
+
+      - name: Tests unitarios del dominio
+        run: npm test
+
+      - name: Migraciones y seed
+        run: |
+          npx prisma migrate deploy
+          npx tsx prisma/seed.ts
+
+      - name: Compilar (build de producción)
+        run: npm run build
+
+      - name: Arrancar servidor
+        run: |
+          npm run start > server.log 2>&1 &
+          npx --yes wait-on http://localhost:3000/api/health --timeout 120000
+
+      - name: Tests de integración (API)
+        run: npm run test:integration
+
+      - name: Instalar navegador de Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Tests e2e (navegador)
+        run: npm run test:e2e
+
+      - name: Subir informe y capturas
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: informe-e2e
+          path: |
+            playwright-report/
+            test-results/
+            server.log
+          retention-days: 14

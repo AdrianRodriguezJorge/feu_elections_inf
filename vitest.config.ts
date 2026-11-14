@@ -4,7 +4,8 @@ import { fileURLToPath } from "node:url";
 export default defineConfig({
   test: {
     environment: "node",
-    include: ["tests/**/*.test.ts"],
+    // Unitarias del dominio; integración (tests/integration) y e2e (tests/e2e) tienen su propia config.
+    include: ["tests/*.test.ts"],
     globals: false,
   },
   resolve: {

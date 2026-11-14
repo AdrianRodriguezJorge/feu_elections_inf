@@ -1,5 +1,7 @@
 # Elecciones FEU — Facultad de Ingeniería Informática
 
+[![CI](https://github.com/AdrianRodriguezJorge/feu_elections_inf/actions/workflows/ci.yml/badge.svg)](https://github.com/AdrianRodriguezJorge/feu_elections_inf/actions/workflows/ci.yml)
+
 Sistema web para la elección del **Secretariado de la Facultad de Ingeniería Informática** de la FEU (Federación Estudiantil Universitaria, Cuba).
 
 ## Documentación
@@ -49,8 +51,10 @@ Todas las cuentas (autoridades incluidas) se **activan** desde la pantalla de in
 | `npm run db:deploy` | Aplica las migraciones pendientes |
 | `npm run db:seed` | Reinicia la base con los datos iniciales (se niega si hay boletas) |
 | `npm run db:reset` | Borra la base, aplica migraciones y siembra (**solo pruebas**) |
-| `node tests/security/f1-attacks.mjs` | Regresión de seguridad contra un servidor local |
-| `node tests/security/f2-flow.mjs` | Jornada electoral completa contra un servidor local |
+| `npm run test:integration` | Tests de la API contra un servidor y una BD de pruebas (CI) |
+| `npm run test:e2e` | Jornada completa en el navegador con Playwright (CI) |
+
+Los tests de integración y e2e se ejecutan en **GitHub Actions** en cada push (`.github/workflows/ci.yml`), con un PostgreSQL propio. El informe y las capturas quedan como artefacto `informe-e2e` de cada ejecución.
 
 ## Módulo Reglamento
 
